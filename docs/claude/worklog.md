@@ -21,6 +21,29 @@ Append-only, never pruned. On ship: promote the durable entry to `completed-feat
 
 <!-- new lines below, newest first -->
 
+- 2026-09-26 · **The operator approved ADR-0021 — all five deletion sub-decisions are answered,
+and the record moves Proposed → Accepted.** Q1: typed confirmation (type the sign-in identifier)
+with a review screen stating five facts — layers deleted, purge date, the history disclosure, that
+export deletes nothing and stays re-downloadable during the window, and cancellability. Q2: a 30-day
+window, account fully usable, cancellable at any time, worker keeps capturing; the purge is a
+point-in-time whole-repo act. Q3: (a) disclose that prior versions remain in history as the shipped
+wording, plus (c) delete-and-fresh as the single-user purge mechanism; (b) history rewrite rejected
+(breaks every clone, contradicts the repo's own housekeeping precedent). Q4: split ownership —
+Nexalog's flow deactivates the shared identity **for Nexalog only**; erasure from the login universe
+is a separate fleet-level act, and the UI must say so. Q5: the legacy v1 store in the shared database
+is **out of scope** — a Nexalog purge never touches it, the copy names it as separate, and its fate
+rides the already-chosen retire-staged direction (queue row 5). The approval is semantics, not
+implementation authority: **no purge flow before the Phase 1.4 v2 export exists**, or the grace
+window's re-download guarantee is empty. Recorded in the ADR (§Open questions — operator
+dispositions, ADR-0019's house pattern) with the cross-reference, both queue rows, the plan index and
+the tiers fragment moved in the same commit; the Blocked row retires. Four questions stay open and
+are listed as such in the ADR: the app-scoped deactivation mechanism, delete-and-fresh's per-clone
+effect, `export_events` retention, and who besides the signed-in user may request deletion (twin of
+ADR-0019 Q8) · `adr/0021-deletion-and-purge-semantics.md`,
+`adr/0019-exit-door-data-export.md`, `docs/claude/in-progress.md`,
+`docs/claude/in-progress.d/pkm-expansion-tiers.md`,
+`docs/claude/platform/pkm-expansion/plan.md` · PKM expansion Phase 1.4 — exit door, deletion half
+
 - 2026-09-26 · **Conflict markers shipped in this file were removed, and the landing gate now fails on any marker anywhere in the tree.** Provenance: a merge resolution (commit `efc4255`, PR #2's branch merging the garden-tokens branch) staged this file while an automated dedupe helper crashed mid-run; the resolution commit carried three marker lines — `<<<<<<< HEAD`, `=======`, `>>>>>>> origin/reapply/46-garden-tokens` — into `main` via the PR #2 merge. No entry was lost: the HEAD side held three real entries and the branch side was empty, so the fix deletes exactly the three marker lines (35 entries before, 35 after, 0 duplicates). Neither the scrub dry-run nor the entry-count check looked for markers, which is why this survived two verification passes — so `scripts/check-docs.sh` now sweeps every tracked file for seven-character run markers (written as regexes so the script cannot match itself) and exits 1 in both staged and `--since` modes; required CI already runs it, so a bad merge resolution can no longer land silently. Negative-tested: re-injecting a marker fails the gate with the file:line listed · `docs/claude/worklog.md`, `scripts/check-docs.sh` · post-flip defect — shipped conflict markers
 
 - 2026-09-26 · **The post-flip re-apply carried unscrubbed archive text into the public repo — found by auditing a duplicate worklog entry, fixed, and the class is closed.** The trigger was a byte-identical duplicated worklog bullet: two copies of the every-branch-APK entry differed by exactly one word — the archive's author first name against main's *the operator*. The re-apply (`git cherry-pick -x` of the two audited branch commits onto the fresh-history public `main`) copied **archive branch content**, and those branches were cut *before* the `scrub.py` pipeline ever ran — so the scrub was bypassed by construction, not by a missed rule. A dry-run of the real `scrub.py` against live `main` found **3 files / 4 replacements**: the worklog (the duplicated entry's author first name plus a word-bounded host codename) and the two Dart Knowledge-Garden files' author-slug example. All four fixed here; the duplicate entry was dropped (the surviving copy is byte-identical to the initial public release's) and the tree now passes `scrub.py --dry-run` with **0 files would change**. Two residual hits remain and are the two *documented* `EXEMPT` entries — the skill author's deliberate public GitHub handle and the Flutter local-database package name in a store list — both intended public identity, not PII. The estate sweep for the host-path, migration-dir, secrets-dir and credential-file classes is 0 across the tree. **Rule recorded:** the scrub pipeline is a property of the *snapshot build*, so every later change brought in from the archive is raw by definition — re-run `scrub.py --dry-run` against `main` after any re-apply, treat a duplicate entry as a scrub-drift tell rather than a cosmetic wart, and write the worklog entry about a scrub **in scrub-clean vocabulary** (this entry's first draft reproduced the very literals it described and was caught by the pipeline) · `docs/claude/worklog.md`, `mobile/lib/src/theme/knowledge_garden_tokens.dart`, `mobile/test/knowledge_garden_tokens_test.dart` · Public flip — post-flip scrub residuals
