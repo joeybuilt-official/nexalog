@@ -7,6 +7,7 @@ import "features/auth/sign_in_screen.dart";
 import "features/bookmarks/bookmarks_screen.dart";
 import "features/bookmarks/reader_screen.dart";
 import "features/capture/capture_screen.dart";
+import "features/captures/capture_review_screen.dart";
 import "features/inbox/inbox_screen.dart";
 import "features/journal/journal_entry_screen.dart";
 import "features/journal/journal_list_screen.dart";
@@ -67,6 +68,13 @@ final routerProvider = Provider<GoRouter>((Ref ref) {
           GoRoute(
             path: "/app/review",
             builder: (_, __) => const ReviewScreen(),
+          ),
+          // Operator decision surface for `status: review` captures — the mobile
+          // counterpart of web `/inbox`. Distinct from `/app/review` above,
+          // which is the P7 SM-2 spaced-repetition session.
+          GoRoute(
+            path: "/app/captures/review",
+            builder: (_, __) => const CaptureReviewScreen(),
           ),
           // Library group
           GoRoute(
