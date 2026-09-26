@@ -6,8 +6,10 @@
   (streamed delivery + byte cap) and D5 (the `export_events` record) — plus D4.1 and D4.4, which
   are inherited by ADR-0021. **D4.2 and D4.3 — the deletion flow, the grace window, the git-history
   disclosure and the shared-identity question — are NOT approved here and are not implementation
-  authority.** Two of the eight open questions are also not answered by this approval: Q5 (legacy
-  v1 store) awaits the read-only production inspection, and Q8 (who can export) remains open.
+  authority.** **Q5 (legacy v1 store) was ANSWERED 2026-09-26** by the read-only production
+  inspection the approval called for — `nexalog_v2` holds no v1 content at all, the v1 store is the
+  shared `pushd` database's `nexalog` schema, and the approved repo export does not reach it (§Open
+  questions Q5). Q8 (who can export) remains open.
 - **Deletion**: split out — see `adr/0021-deletion-and-purge-semantics.md` (Proposed, the
   operator's to decide). A reader looking for deletion lands there.
 - **Accepted**: 2026-09-26 (operator; dispositions per §Open questions — operator dispositions)
@@ -217,11 +219,31 @@ questions that this approval does **not** answer are marked as such rather than 
 4. **Deleting the identity has cross-app blast radius.** — **Deferred in full to
    `adr/0021-deletion-and-purge-semantics.md`** (Q4): the shared `auth` schema, the "delete
    everywhere vs deactivate for Nexalog only" fork, and whose call it is. Not answered here.
-5. **Is the legacy v1 content store in scope?** — **NOT answered by this approval.** Whether
-   prod's `nexalog_v2` still holds the v1 tables is a production fact this ADR never verified; it
-   is being closed by a **read-only production inspection, not assumed from the repo**. Until it
-   lands, the legacy store's scope — and the fate of the shipped v1 `apps/web/app/api/export/route.ts`
-   — stays open. (Same unknown as `adr/0018-projects-reference-based-containers.md` question 5.)
+5. **Is the legacy v1 content store in scope?** — **ANSWERED 2026-09-26 by the read-only
+   production inspection this question called for.** The inspected facts:
+
+   - **`nexalog_v2` — the database this deployment's `DATABASE_URL` points at — contains only the
+     3 v2 app-state tables** (`api_tokens`, `capture_index`, `read_state`). It holds **no v1 content
+     tables at all**, so it is not a partially-migrated store. (Confirmed: `SELECT count(*) FROM
+     nexalog.workspaces` against `nexalog_v2` → `ERROR: relation "nexalog.workspaces" does not
+     exist`.)
+   - **The v1 content model — all 34 tables, with live data (3,769 notes, 4,446
+     `capture_sources`) — lives in the shared `pushd` database's `nexalog` schema**, which is where
+     `AUTH_DATABASE_URL` points.
+
+   **Disposition — in scope, and not as a copy: the approved export does NOT reach it.** D1 scopes
+   the export to the **brain git repo**, and the v1 store is a *different* store in a *different*
+   database that the export's loader never touches. So this inspection **removes** a question that
+   was feared to be a blocker rather than adding one: publishing the exit door as approved exports
+   the repo's files and nothing from `pushd`.
+
+   **What this does NOT resolve, and stays operator-gated with queue row 5:** whether the legacy
+   `pushd.nexalog` content is ever migrated, repointed at, or retired — and, because the shipped v1
+   `apps/web/app/api/export/route.ts` reads through the same `{ db }` → `DATABASE_URL` path as the
+   five stopped-up routes, **that route cannot work against the deployed configuration** (the same
+   `42P01` failure class). It is part of the row-5 direction, not part of the approved repo export —
+   do not treat it as a working v1 content export. (Same finding as
+   `adr/0018-projects-reference-based-containers.md` question 5.)
 6. **Git history in the export.** — **Confirmed as the ADR's default: opt-in second artifact.** A
    `git bundle` is offered alongside the ZIP, never instead of it.
 7. **Size and time limits.** — **Confirmed as the ADR's default:** ship the **streamed** route plus

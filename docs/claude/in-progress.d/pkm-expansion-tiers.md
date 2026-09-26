@@ -25,8 +25,9 @@ archive). **NOT approved: D4.2/D4.3 — the deletion flow, the grace window, the
 disclosure, the shared-identity blast radius — deferred to `adr/0021-*`.** Dispositions of the
 eight open questions are recorded in the ADR: Q1–Q4, Q6, Q7 answered (single-user confirmed;
 whole-account; git bundle opt-in; stream + cap are the defaults); **Q5 (legacy v1 store in scope)
-is NOT answered** — it awaits the read-only production inspection — and **Q8 (who can export)
-remains open**. It is numbered **0019** because 0018 was claimed by the Projects Phase 2 design in
+was ANSWERED 2026-09-26** by the read-only production inspection — `nexalog_v2` holds no v1 content,
+the v1 store is the shared `pushd.nexalog` schema, and the approved repo export does not reach it —
+and **Q8 (who can export) remains open**. It is numbered **0019** because 0018 was claimed by the Projects Phase 2 design in
 the same batch, and because 0002 was already used for this decision on 2026-06-13 and 0009
 superseded it on 2026-06-27 — and 0009's version actually shipped (`apps/web/app/api/export/route.ts`,
 `85089e0`) against the **v1 Postgres content model**, which the v2 pivot replaced with the brain git
