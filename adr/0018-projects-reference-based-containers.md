@@ -3,7 +3,12 @@
 - **Status**: **Accepted — operator approval 2026-09-26 (Phase 2 hard stop cleared).**
   Phase 3 may start immediately on the pure `packages/core` slice (domain,
   contracts, use cases, port declarations); the **migration/adapter/route slice
-  is held** until the `nexalog_v2` provenance answer lands (question 5, below).
+  is released for the `CREATE` question** — the `nexalog_v2` provenance
+  inspection landed 2026-09-26 (question 5, below): that database holds only the
+  3 v2 app-state tables and no v1 content, so Projects DDL there is a `CREATE`,
+  not an `ALTER`. The **data** half — that the content Projects references still
+  lives in `pushd`, and what to do about that — is folded into the legacy-v1
+  direction (queue row 5) and stays operator-gated.
 - **Approved**: 2026-09-26 (operator; dispositions per §Operator decisions)
 - **Date**: 2026-09-25
 - **Phase**: Projects Phase 2 (design + ADR)
@@ -282,12 +287,36 @@ decided — and what was not.
    warning stands: `schema.projects` is referenced by the **live** `/api/sync`
    and `/api/sync/mutations` table maps, so removing it is a code change, never
    a file delete.
-5. **`nexalog_v2` migration provenance** (§item 5, above). — **NOT answered by
-   this approval.** It is a production fact, and it is being resolved separately
-   by a **read-only production inspection — not assumed from the repo**. Until
-   that lands, Phase 3 is split: the **pure `packages/core` slice (domain,
-   contracts, use cases, port declarations) may proceed immediately**, while the
-   **migration/adapter/route slice is HELD** — no Projects migration can be
-   generated while the `CREATE`-vs-`ALTER` question is open.
+5. **`nexalog_v2` migration provenance** (§item 5, above). — **ANSWERED
+   2026-09-26 by the read-only production inspection this item called for.** The
+   inspection is conclusive and both halves of the question came back the same
+   way:
+
+   - **`nexalog_v2` holds only the 3 v2 app-state tables** — `api_tokens`,
+     `capture_index`, `read_state` (1 row each), all in schema `nexalog`. There
+     are **no v1 content tables anywhere in that database**: `SELECT count(*)
+     FROM nexalog.workspaces` against `nexalog_v2` returns
+     `ERROR: relation "nexalog.workspaces" does not exist`, while the same query
+     against `pushd` succeeds. So the ~31 "uncommitted tables" are **not missing
+     DDL for tables that exist** — they are tables that were **never created in
+     this database at all**.
+   - **The v1 content model lives entirely in the shared `pushd` database's
+     `nexalog` schema** — all 34 tables, with substantial live data (3,769
+     notes, 4,446 capture_sources). `nexalog_v2` is not a partially-migrated
+     copy of it; the two are disjoint.
+
+   **Consequence for this ADR — the hold is LIFTED for the `CREATE` question and
+   REPLACED by a narrower one.** The `CREATE`-vs-`ALTER` ambiguity is settled:
+   there is nothing to `ALTER`, so Projects DDL against `nexalog_v2` is a
+   `CREATE`, and generating that migration is no longer blocked by provenance.
+   What is **not** settled by the inspection, and stays operator-gated, is the
+   **data** question: Projects' member rows and any V1-era
+   `notes`/`journalEntries` content live in `pushd`, not in the deployment's
+   database, so a Projects migration can create **empty** tables in `nexalog_v2`
+   while the content it is meant to reference stays in the other database. That
+   is the same repoint-vs-migrate-vs-retire decision tracked on the legacy-v1
+   routes (queue row 5) and must be answered **with** it, not separately —
+   creating the DDL now is safe and reversible; creating it and *assuming it is
+   populated* is not.
 6. **Mobile parity.** — **The ADR's default is taken:** web-first in Phase 5
    with file parity after; the ship gate is not held for mobile.

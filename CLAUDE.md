@@ -13,7 +13,9 @@ ruleset. Read it as your hub.
   refused (`pnpm db:push`, `drizzle-kit push`, `psql`, publish and deploy commands). That is one
   harness — every other tool (Cursor, Copilot, Codex, Gemini, Windsurf, Cline, aider) never reads
   `.claude/settings.json` and still gets the MUST-NOT list in `AGENTS.md` as prose, and CI is
-  report-only until branch protection lands. One hole closed, not all of them. Never run
+  a **required** check on `main` since 2026-09-26 (branch protection is live: admins enforced,
+  no force-push, no deletion). The permission gate still binds Claude Code only, so other harnesses
+  get these rules as prose. Never run
   `pnpm db:push` in any case: the `nexalog` schema lives in the **shared** Postgres beside
   other apps' schemas, so a drop is not contained to this project.
 - Claude Code follows `@` imports natively, but the rule modules are **also inlined** at the bottom of

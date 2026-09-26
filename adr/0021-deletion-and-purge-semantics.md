@@ -89,13 +89,20 @@ ADR-0019's open question 4, carried forward unchanged.)
 
 ### Q5 — Is the legacy v1 content store in scope for deletion?
 
-The carried-over v1 routes still read the 34-table v1 model in `apps/web/lib/db/schema.ts`.
-Whether prod's `nexalog_v2` still holds that content is **a production fact this ADR does not
-verify** — it is being closed by a **read-only production inspection, not assumed from the repo**
-(the same unknown as `adr/0018-projects-reference-based-containers.md` operator question 5 and
-`adr/0019-exit-door-data-export.md` open question 5). Until that answer lands, this ADR cannot say
-whether the deletion surface covers one store or two, nor the fate of the shipped v1
-`apps/web/app/api/export/route.ts`. **Undecided.**
+The carried-over v1 routes read the 34-table v1 model in `apps/web/lib/db/schema.ts`, and the
+**2026-09-26 read-only production inspection resolved the store question**: prod's `nexalog_v2`
+holds **only the 3 v2 app-state tables** (`api_tokens`, `capture_index`, `read_state`) and **no v1
+content tables at all**, while the entire v1 model — all 34 tables, with live data (3,769 notes,
+4,446 `capture_sources`) — lives in the **shared `pushd` database's `nexalog` schema**. So the
+deletion surface is unambiguously **two stores in two databases**, and the v1 store is the shared
+one.
+
+What is **still undecided here is the policy**, not the topology: whether deleting a Nexalog account
+touches the `pushd` content at all, and what happens to the shipped v1
+`apps/web/app/api/export/route.ts` — which reads through the same `{ db }` → `DATABASE_URL` path as
+the five stopped-up routes, so it **42P01s against the deployed configuration** and is not a working
+content export. Both are part of the **retire, staged** direction the operator chose for queue row 5.
+**Undecided (policy).**
 
 ## Open questions for the operator
 
