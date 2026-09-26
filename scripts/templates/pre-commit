@@ -1,0 +1,39 @@
+#!/usr/bin/env sh
+# Starter local pre-commit gate. Copy to .git/hooks/pre-commit (chmod +x), or wire it via husky /
+# lefthook / pre-commit. Nexalog has no hook manager today, so nothing runs this until you install it.
+#
+# HONEST NOTE: a client-side hook is convenience, not enforcement — any agent can bypass it with
+# `git commit --no-verify`, and a non-Claude agent may not run it at all. The binding plane is
+# required CI (`scripts/templates/ci-verify.yml`). Nexalog has neither today, which is why running
+# these gates by hand before every commit is currently the only thing standing between a change and
+# `main`.
+#
+# Commands below match AGENTS.md → Commands and nexalog's real package.json scripts.
+set -eu
+
+echo "pre-commit: typecheck…"; pnpm typecheck
+echo "pre-commit: lint…";      pnpm lint
+echo "pre-commit: test…";      pnpm test
+
+# Architecture boundaries — WIRED 2026-09-25: `.dependency-cruiser.cjs` + the `depcruise` script
+# exist now, so this runs (a layering breach fails the commit, same rules CI enforces).
+echo "pre-commit: architecture boundaries…"; pnpm depcruise
+
+# Keep the tool-native agent mirrors in sync with AGENTS.md (fails if a mirror drifted).
+if [ -f scripts/sync-agents.sh ]; then
+  echo "pre-commit: agent mirrors…"; sh scripts/sync-agents.sh --check
+fi
+
+# Docs landing gate — no code change lands without its worklog line in the same commit.
+# Nexalog's worklog target is docs/claude/worklog.md (no CHANGELOG.md/HISTORY.md here).
+if [ -f scripts/check-docs.sh ]; then
+  echo "pre-commit: docs gate…"; sh scripts/check-docs.sh
+fi
+
+# Expert-review gate — NOT viable in nexalog: it requires a checklist.md with pending items under
+# docs/claude/, and this repo keeps its checklists at the root instead. See ci-verify.yml's header.
+# if [ -f scripts/check-expert-review.sh ]; then
+#   echo "pre-commit: expert review…"; sh scripts/check-expert-review.sh
+# fi
+
+echo "pre-commit: OK"

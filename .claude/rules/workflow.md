@@ -1,0 +1,24 @@
+# Workflow: Change Approval and Planning
+
+> **Applies when:** always. This is Nexalog's collaboration protocol.
+> **Delete this file:** never.
+
+## Change approval
+
+- **Strict protocol:** describe the proposed changes, files, layers, and reason before editing; wait for approval unless the user explicitly authorized the edit in the request.
+- State the root-cause hypothesis for fixes instead of silently assuming it.
+- Name the layers touched: Entities/Domain, Use Cases/Application, Interface Adapters, or Frameworks and Drivers.
+- If a dependency would point outward, raise it before writing the change.
+- Surface second problems instead of folding unrelated work into the approved change.
+
+## Planning workflow
+
+- Enter plan mode before non-trivial or multi-step work.
+- Persist plans under `docs/claude/` using `docs/claude/_templates/plan.md`.
+- Put plans in the relevant area folder, not flat at the docs root, and link them from `docs/claude/in-progress.md`.
+- Re-read the plan at each milestone and record deviations with a `Build note`.
+- If the work materially differs from the plan, stop and re-plan.
+
+## Before proposing
+
+Run the self-check in `quality-bar.md` before describing a structural change. Name the tradeoff, the recommendation, and the dependency direction.

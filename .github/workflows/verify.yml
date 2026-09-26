@@ -1,0 +1,113 @@
+# verify — the ONE plane that binds every agent, in any tool.
+#
+# Installed 2026-09-20 from `scripts/templates/ci-verify.yml` (the template keeps the full rationale).
+# Before this file existed nexalog had **no CI at all** and **no `.claude/settings.json` permission
+# gate**, which made every guardrail in AGENTS.md advisory prose for every harness — Claude Code
+# included. A required status check is what actually blocks a bad merge, because it runs on the
+# server, not on anyone's machine, and cannot be skipped with `--no-verify`.
+#
+# This matters more here than in the sibling apps: the database is the **shared Postgres**, and
+# `pnpm db:push` (`drizzle-kit push`) is a one-command way to drop columns across other apps' schemas.
+#
+# ⚠ REPORT-ONLY UNTIL BRANCH PROTECTION LANDS: this workflow currently *reports* on every PR and push
+#   to main, but nothing is REQUIRED. A red `verify` does not block a merge yet. Operator step (once,
+#   after this workflow has run green on a real PR): in repo Settings → Branches, add a
+#   branch-protection rule on `main` marking the `verify` check REQUIRED and forbidding force-push /
+#   direct push — `scripts/init-repo-protection.sh` does this once someone with admin auth runs it.
+#   See AGENTS.md → "Enforcement — the honest version".
+#
+# NOT WIRED, deliberately: `scripts/check-expert-review.sh`. It requires a `checklist.md` with pending
+# items under `docs/claude/`; nexalog keeps its checklists at the repo root instead, so the gate can
+# never pass as written. Either move the checklists under `docs/claude/<area>/<slug>/` (where they
+# belong per PANOPLY-OPTIMIZATION.md §1) or leave this step out.
+#
+# WIRED 2026-09-25: the architecture-boundary check (`pnpm depcruise`, config `.dependency-cruiser.cjs`).
+# It was the missing gate called out in `.claude/rules/clean-architecture.md` → "Known gaps" — the
+# dependency rule for core/adapters/web-lib is now machine-checked on every PR instead of review-only.
+
+name: verify
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history, so the docs gate can diff against the PR base
+
+      # pnpm 10 + Node 22, matching the Dockerfile (`RUN npm install -g pnpm@10`, `FROM node:22-alpine`).
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Agent-mirror drift — fails if any tool-native file (.cursor/.clinerules/.windsurf/.github/
+      # copilot-instructions.md, GEMINI.md, CONVENTIONS.md) or the AGENTS.md rules block is stale vs
+      # AGENTS.md + .claude/rules/*.md. This is what keeps every tool's inlined ruleset honest.
+      - name: Agent mirrors in sync
+        run: sh scripts/sync-agents.sh --check
+
+      # Docs landing gate — fails if any commit in this PR changed code but not the worklog.
+      # Nexalog has no CHANGELOG.md/HISTORY.md, so check-docs.sh resolves to docs/claude/worklog.md.
+      - name: Docs in sync
+        run: sh scripts/check-docs.sh --since "${{ github.event.pull_request.base.sha }}"
+        if: github.event_name == 'pull_request'
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # Architecture boundaries — inward-only Clean Architecture. Wired 2026-09-25; closes the
+      # "no import-boundary linter" gap in .claude/rules/clean-architecture.md → "Known gaps".
+      # `error` rules (core purity, layer direction, lib-no-UI) fail the build; the 9
+      # `web-lib-no-direct-db` violations are baselined as `warn` — ratchet to `error` once the
+      # slices move storage behind adapters.
+      - name: Architecture boundaries
+        run: pnpm depcruise
+
+      # Lint — BLOCKING since 2026-09-21. The pre-existing 19-error baseline was burned down rather
+      # than suppressed: 6 `prefer-const` sites auto-fixed, 5 `react/no-unescaped-entities` sites
+      # escaped, the 3 `react-hooks/set-state-in-effect` sites restructured to the patterns React
+      # documents for them (remount-by-key, initial state, render-phase reset + AbortController), and
+      # `@typescript-eslint/no-require-imports` scoped off for `scripts/**/*.js` only — those one-offs
+      # are CommonJS (no `"type": "module"`), so `require()` is the correct import form there.
+      # The remaining 47 warnings are intentionally non-fatal: `pnpm lint` runs without
+      # --max-warnings, so only errors fail this step.
+      - name: Lint
+        run: pnpm lint
+
+      # ffmpeg — the media adapter shells out to it (`FfmpegTranscoder`, the D4
+      # audio→opus normalization). `ubuntu-latest` does NOT ship it, so without
+      # this step `capture-kinds-e2e.test.ts` silently SKIPS its three
+      # real-encoder cases (asserting a genuine OggS/OpusHead container on disk
+      # and byte-identity of the untouched photo) and the suite reports green
+      # having verified nothing about the transcode. ~10s.
+      - name: ffmpeg (real-encoder integration tests)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      # Architecture boundaries — WIRED 2026-09-25: `.dependency-cruiser.cjs` + `pnpm depcruise`
+      # (step above). The old comment "not wired: no .dependency-cruiser.cjs in this repo yet" is done.
+
+      # Expert-review gate — not viable here yet. See the note at the top of this file.
+      # - name: Expert review
+      #   run: sh scripts/check-expert-review.sh --since "${{ github.event.pull_request.base.sha }}"
+      #   if: github.event_name == 'pull_request'
+
+      # Secret scan — recommended; nothing scans this repo today. Pin the gitleaks CLI and verify the
+      # release checksum before executing it (see fylo's workflow for a working example); the
+      # gitleaks-action needs a paid license for org-owned repos.
+      # - name: Secret scan
+      #   run: gitleaks git . --no-banner --redact

@@ -1,0 +1,263 @@
+/**
+ * Ports — the interfaces `core`'s use cases depend on. Adapters implement
+ * these; `core` imports nothing concrete. This is the Clean Architecture wall:
+ * no fs, no fetch, no db, no git in this package.
+ */
+
+import { Capture, CaptureState } from "../domain/capture";
+import { CaptureStatus } from "../domain/capture-status";
+import { AttachmentKind } from "../domain/attachment-kind";
+import { Slug } from "../domain/slug";
+import { Ulid } from "../domain/ulid";
+
+/** Generate IDs (ULIDs) and timestamps. Injectable for deterministic tests. */
+export interface IdGen {
+  newUlid(): Ulid;
+  newCapturedAt(): Date;
+}
+
+export interface Clock {
+  now(): Date;
+}
+
+/**
+ * BrainStore — read/write markdown pages + attachments in the brain git repo.
+ * Implemented by FsGitBrainStore (bind-mounted repo, single-writer commit).
+ */
+export interface BrainStore {
+  /** Persist a new capture as inbox/<id>.md and commit. */
+  saveCapture(capture: Capture): Promise<void>;
+
+  /** Read one capture by id, or null if absent. */
+  getCapture(id: Ulid): Promise<CaptureState | null>;
+
+  /** List inbox captures (optionally filtered by status). */
+  listCaptures(filter?: { status?: CaptureState["status"] }): Promise<CaptureState[]>;
+
+  /** Update an existing capture (status/claim/review transitions) and commit. */
+  updateCapture(capture: Capture): Promise<void>;
+
+  /** Read a page by slug (markdown frontmatter + body), or null. */
+  getPage(slug: Slug): Promise<{ slug: Slug; frontmatter: Record<string, unknown>; body: string } | null>;
+
+  /** Write a page by slug and commit. */
+  savePage(slug: Slug, frontmatter: Record<string, unknown>, body: string): Promise<void>;
+
+  /**
+   * Persist an attachment and return its repo-relative path. `kind` is the
+   * per-file kind derived by `deriveAttachmentKind` — the implementation uses it
+   * to name the stored file (audio is always opus after normalization, so it
+   * must not keep a `.m4a`/`.wav` extension).
+   */
+  saveAttachment(input: {
+    name: string;
+    kind: AttachmentKind;
+    bytes: Uint8Array;
+  }): Promise<{ path: string }>;
+}
+
+/**
+ * BrainIndex — search + graph + entity over the brain. Implemented by
+ * GBrainIndex (MCP) and NullIndex (frontmatter scan fallback).
+ */
+export interface BrainIndex {
+  search(query: string, opts?: { limit?: number }): Promise<Array<{ slug: string; title: string; snippet: string }>>;
+  entity(name: string): Promise<{ slug: string; type: string } | null>;
+  graphNeighborhood(slug: Slug, opts?: { depth?: number }): Promise<{ nodes: unknown[]; edges: unknown[] }>;
+  sync(): Promise<void>;
+}
+
+// ── GBrain (MCP) capabilities ──────────────────────────────────────────────
+
+/**
+ * One search hit returned by GBrain's hybrid search. Shape mirrors the
+ * `search`/`query` tools (`content[0].text` JSON). Plain data only — no MCP
+ * wire types cross this wall.
+ */
+export interface GBrainSearchHit {
+  slug: string;
+  title: string;
+  /** gbrain page type (person/company/project/concept/note/…). */
+  type: string;
+  /** The retrieved chunk text (may be truncated per snippet budget). */
+  chunkText: string;
+  score: number | null;
+  sourceId: string | null;
+  effectiveDate: string | null;
+}
+
+/** A read of one brain page (get_page). */
+export interface GBrainPage {
+  slug: string;
+  title: string;
+  type: string;
+  /** Markdown body (compiled_truth or raw content where present). */
+  body: string;
+}
+
+/** A directed link between two pages (traverse_graph / get_backlinks / get_links). */
+export interface GBrainLink {
+  fromSlug: string;
+  toSlug: string;
+  linkType: string;
+  context: string | null;
+  /** 1-based hop distance from the traversal seed (null for backlinks). */
+  depth: number | null;
+}
+
+/** entity() resolution — never throws on a miss; `found` gates the payload. */
+export interface GBrainEntity {
+  found: boolean;
+  slug: string | null;
+  type: string | null;
+}
+
+/**
+ * GBrainClient — the read-only capabilities Nexalog needs from GBrain's MCP
+ * server. GBrain owns index/graph/retrieval/embeddings; Nexalog only calls it
+ * (it makes zero LLM calls of its own). Implemented by the MCP HTTP adapter in
+ * `packages/adapters`; the `BrainIndex`/`NullIndex` path remains the fs
+ * frontmatter fallback when GBrain is unreachable.
+ *
+ * Methods throw on transport/auth failure — callers catch and degrade.
+ */
+export interface GBrainClient {
+  /** Cheap hybrid search (vector+keyword+RRF), no LLM expansion. */
+  search(query: string, opts?: { limit?: number; types?: string[] }): Promise<GBrainSearchHit[]>;
+  /** Hybrid search with multi-query expansion (concept/synonym recall). */
+  query(query: string, opts?: { limit?: number; types?: string[] }): Promise<GBrainSearchHit[]>;
+  /** Read one page by slug, or null when absent. */
+  getPage(slug: string): Promise<GBrainPage | null>;
+  /** Incoming links to a page. */
+  getBacklinks(slug: string): Promise<GBrainLink[]>;
+  /** Walk the link graph from a page (outgoing/ingoing/both, up to depth). */
+  traverseGraph(slug: string, opts?: { depth?: number; direction?: "in" | "out" | "both" }): Promise<GBrainLink[]>;
+  /** Resolve one named person/company/project card (never throws on miss). */
+  entity(name: string): Promise<GBrainEntity>;
+}
+
+// ── AppState: derived index + tokens + read state ───────────────────────────
+
+/**
+ * One row of the derived capture index (DB table `nexalog.capture_index`).
+ * Parity with the frontmatter contract (nexalog.schema=1) plus repo
+ * bookkeeping. Plain data only — no drizzle types cross this wall.
+ */
+export interface CaptureIndexRow {
+  /** Capture identity; equals the `<ulid>` stem of the source markdown file. */
+  ulid: string;
+  /** Repo-relative path of the source file, e.g. `inbox/01J8….md`. */
+  path: string;
+  /** gbrain-base-v2 page type (top-level frontmatter `type:`). */
+  type: string;
+  /** nexalog.schema version of the source file. */
+  schemaVersion: number;
+  status: CaptureStatus;
+  kind: string;
+  source: string;
+  capturedAt: Date;
+  processedAt: Date | null;
+  claimedBy: string | null;
+  attachments: string[];
+  originUrl: string | null;
+  hasProposal: boolean;
+  title: string;
+  /** sha256 of body markdown ONLY — detects file changes content-free. */
+  bodySha256: string | null;
+  reindexedAt: Date;
+}
+
+export interface InboxIndexFilter {
+  /** Omit to list all statuses. */
+  status?: CaptureStatus;
+  /** Max rows to return. */
+  limit?: number;
+  /** Opaque cursor from a previous page (`nextCursor`), for keyset paging. */
+  cursor?: string;
+}
+
+export interface InboxIndexPage {
+  rows: CaptureIndexRow[];
+  /** Pass as `cursor` for the next page; null when exhausted. */
+  nextCursor: string | null;
+}
+
+/**
+ * Issued API-token material. The plaintext token is returned exactly once at
+ * creation; only its sha256 hex is ever persisted.
+ */
+export interface ApiTokenCreated {
+  id: string;
+  name: string;
+  /** First 8 chars of the plaintext token, for display/rotation UX. */
+  tokenPrefix: string;
+  /** The plaintext bearer token — show once; storage keeps only the hash. */
+  token: string;
+  tokenHash: string;
+  createdAt: Date;
+}
+
+/** A stored (non-secret) view of an API token. */
+export interface ApiTokenView {
+  id: string;
+  name: string;
+  tokenPrefix: string;
+  createdAt: Date;
+  lastUsedAt: Date | null;
+  revokedAt: Date | null;
+}
+
+/**
+ * AppStateRepo — non-content state: the derived inbox index, api tokens, and
+ * read state. Implemented by DrizzleAppStateRepo (Postgres, app-state only).
+ *
+ * Invariants the implementation must honor:
+ *  - the DB never stores body CONTENT (only its sha256, when present);
+ *  - plaintext bearer tokens never reach storage — callers receive the token
+ *    from createApiToken, the repo persists only its sha256 hex;
+ *  - verifyApiToken compares sha256 hex constant-time and bumps last_used.
+ */
+export interface AppStateRepo {
+  // ── derived capture index ────────────────────────────────────────────────
+  /** Insert-or-update (keyed by ulid) a batch of index rows. */
+  upsertCaptureIndex(rows: CaptureIndexRow[]): Promise<void>;
+
+  /** Paged read of the derived index, most recent capture first. */
+  listInboxIndex(filter?: InboxIndexFilter): Promise<InboxIndexPage>;
+
+  /** Remove index rows for files that no longer exist (orphans). */
+  deleteCaptureIndex(ulids: string[]): Promise<void>;
+
+  /** Remove every index row (TRUNCATE-and-rebuild support). */
+  clearCaptureIndex(): Promise<void>;
+
+  /** Fetch one row by capture id, or null. */
+  getCaptureIndexRow(ulid: string): Promise<CaptureIndexRow | null>;
+
+  // ── read state ───────────────────────────────────────────────────────────
+  markRead(captureId: Ulid, readAt: Date, userId?: string): Promise<void>;
+  isRead(captureId: Ulid, userId?: string): Promise<boolean>;
+
+  // ── api tokens ───────────────────────────────────────────────────────────
+  /**
+   * Create a token for `name`. The plaintext token comes back exactly once;
+   * the implementation stores only sha256(token) hex as `tokenHash`.
+   */
+  createApiToken(name: string): Promise<ApiTokenCreated>;
+
+  /**
+   * Verify a bearer token: sha256 it, constant-time-compare against stored
+   * hashes, bump last_used_at on a match. Null when no active match.
+   */
+  verifyApiToken(token: string): Promise<ApiTokenView | null>;
+
+  /** Soft-revoke (sets revoked_at); verify rejects revoked tokens. */
+  revokeApiToken(name: string): Promise<void>;
+
+  listApiTokens(): Promise<ApiTokenView[]>;
+}
+
+/** Normalize audio to opus (ffmpeg). Implemented by the media adapter. */
+export interface Transcoder {
+  toOpus(bytes: Uint8Array): Promise<Uint8Array>;
+}

@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+/*
+ * Knowledge Garden — the chosen design direction (B).
+ *
+ * Semantic tokens ONLY. The default Tailwind palette is disabled via
+ * `--color-*: initial`, so `text-gray-400`, `bg-zinc-900`, etc. FAIL TO COMPILE.
+ * This is the structural wall against unreadable hardcoded colors (plan §1.8).
+ *
+ * Light (paper) + dark (ink) defined on `:root` / `.dark`. Page TYPE is the
+ * accent color system: person=green, company=blue, source=amber, note=violet,
+ * project=copper, concept=teal, media=slate.
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* ── kill the default palette ── */
+  --color-*: initial;
+
+  /* ── semantic tokens (both schemes) ── */
+  --color-background: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-foreground: var(--fg);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-fg);
+  --color-border: var(--border);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-fg);
+
+  /* ── type colors (Knowledge Garden: color = structure) ── */
+  --color-type-person: var(--t-person);
+  --color-type-company: var(--t-company);
+  --color-type-project: var(--t-project);
+  --color-type-concept: var(--t-concept);
+  --color-type-note: var(--t-note);
+  --color-type-source: var(--t-source);
+  --color-type-media: var(--t-media);
+
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  --font-sans: var(--font-body, ui-sans-serif, system-ui, sans-serif);
+  --font-serif: var(--font-reading, Georgia, "Times New Roman", serif);
+}
+
+/* ── light (paper) ── */
+:root {
+  color-scheme: light;
+  --bg: #faf6f0;
+  --surface: #ffffff;
+  --surface-2: #f3ede4;
+  --fg: #2b2723;
+  --muted: #f3ede4;
+  --muted-fg: #8a8078;
+  --border: #e8e1d7;
+  --accent: #a05830;
+  --accent-fg: #ffffff;
+
+  --t-person: #4e7a3c;
+  --t-company: #3f6fa8;
+  --t-project: #a05830;
+  --t-concept: #0f766e;
+  --t-note: #6c5a9c;
+  --t-source: #a37f28;
+  --t-media: #64748b;
+}
+
+/* ── dark (ink) ── */
+.dark {
+  color-scheme: dark;
+  --bg: #1e1b18;
+  --surface: #262220;
+  --surface-2: #2d2926;
+  --fg: #ece7df;
+  --muted: #2d2926;
+  --muted-fg: #9a9188;
+  --border: #3a3430;
+  --accent: #c07040;
+  --accent-fg: #1a1816;
+
+  --t-person: #7fa86b;
+  --t-company: #6b8fc0;
+  --t-project: #c07040;
+  --t-concept: #4fd1c5;
+  --t-note: #9b8bc0;
+  --t-source: #c9a24b;
+  --t-media: #94a3b8;
+}
+
+/* reading surfaces use the serif; controls stay sans */
+body {
+  background: var(--bg);
+  color: var(--fg);
+}

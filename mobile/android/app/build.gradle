@@ -1,0 +1,81 @@
+plugins {
+    id "com.android.application"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader("UTF-8") { reader -> localProperties.load(reader) }
+}
+
+def flutterVersionCode = localProperties.getProperty("flutter.versionCode") ?: "1"
+def flutterVersionName = localProperties.getProperty("flutter.versionName") ?: "1.0"
+
+android {
+    namespace = "com.joeybuilt.nexalog"
+    compileSdk = 36
+    ndkVersion = "28.2.13676358"
+
+    defaultConfig {
+        applicationId = "com.joeybuilt.nexalog"
+        minSdkVersion = flutter.minSdkVersion
+        targetSdk = 35
+        versionCode = flutterVersionCode.toInteger()
+        versionName = flutterVersionName
+    }
+
+    signingConfigs {
+        release {
+            def keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+            if (keystorePath) {
+                storeFile file(keystorePath)
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // Release artifacts are ALWAYS signed with the release keystore.
+            // There is deliberately no debug fallback: a missing signing
+            // keystore fails the build (taskGraph guard below) instead of
+            // silently producing a debug-signed "release" APK.
+            signingConfig signingConfigs.release
+            minifyEnabled false
+            shrinkResources false
+        }
+        debug {
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_17.toString()
+    }
+
+}
+
+// Refuse to produce a release artifact without the release signing env.
+// Gradle's default here silently used the DEBUG keystore and shipped two
+// debug-signed APKs (2026-09-25); fail loudly at the task graph instead.
+gradle.taskGraph.whenReady { graph ->
+    def releaseTasks = graph.allTasks.findAll { it.name.startsWith("assembleRelease") || it.name.startsWith("bundleRelease") }
+    if (!releaseTasks.isEmpty()) {
+        def missing = ["ANDROID_KEYSTORE_PATH", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD"].findAll { !System.getenv(it) }
+        if (!missing.isEmpty()) {
+            throw new GradleException("Refusing to build a release APK: missing signing env ${missing.join(', ')} — without it gradle would silently fall back to the DEBUG keystore.")
+        }
+    }
+}
+
+flutter {
+    source = "../.."
+}

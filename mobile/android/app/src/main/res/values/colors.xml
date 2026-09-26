@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Adaptive icon background: Nexalog copper. Matches kBrand in
+         lib/main.dart and the foreground bookmark mark in the legacy
+         ic_launcher.png so the adaptive launcher icon looks identical to
+         the pre-Android-8 fallback at a glance. -->
+    <color name="ic_launcher_background">#C07040</color>
+</resources>

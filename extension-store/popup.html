@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <div class="mark"></div>
+    <span class="brand">Nexalog</span>
+  </header>
+
+  <div id="page">
+    <div id="title" class="title">Loading…</div>
+    <div id="url" class="url"></div>
+  </div>
+
+  <div id="status" class="status pending">Saving…</div>
+
+  <button id="retry" class="primary" hidden>Retry</button>
+
+  <div id="auth" class="auth" hidden>
+    <p>Sign in to <span class="host">nexalog.com</span> to save this page.</p>
+    <button id="signin" class="primary">Sign in</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

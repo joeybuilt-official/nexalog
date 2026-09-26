@@ -1,0 +1,49 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+:root { --copper: #c07040; --copper-dark: #8a4f2c; }
+* { box-sizing: border-box; }
+body {
+  width: 320px;
+  margin: 0;
+  padding: 14px;
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #0b0b0d;
+  color: #e7e7ea;
+}
+header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.mark {
+  width: 18px; height: 18px; border-radius: 4px;
+  background: var(--copper);
+}
+.brand { font-weight: 600; letter-spacing: .2px; }
+
+.title {
+  font-weight: 600; font-size: 13px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.url {
+  color: #8a8a92; font-size: 11px; margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+button.primary {
+  width: 100%; margin-top: 12px; padding: 9px 12px;
+  border: 0; border-radius: 7px; cursor: pointer;
+  background: var(--copper); color: #fff; font-weight: 600; font-size: 13px;
+}
+button.primary:hover { background: var(--copper-dark); }
+button.primary:disabled { opacity: .55; cursor: default; }
+
+.status {
+  margin-top: 12px; padding: 9px 10px; border-radius: 7px;
+  font-size: 12px; line-height: 1.4;
+}
+.status.pending { background: #1f2433; color: #b9c2d6; }
+.status.ok { background: #14331f; color: #7ee2a8; }
+.status.err { background: #3a1414; color: #f1a3a3; }
+.status .hopper { font-weight: 600; color: #fff; }
+.status a { color: #fff; font-weight: 600; text-decoration: underline; cursor: pointer; }
+.status.ok a { display: inline-block; margin-top: 4px; }
+
+.auth { margin-top: 12px; }
+.auth p { margin: 0 0 8px; color: #c9c9cf; font-size: 12px; }
+.auth .host { color: #e7e7ea; font-weight: 600; }

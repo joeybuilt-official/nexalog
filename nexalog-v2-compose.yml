@@ -1,0 +1,63 @@
+# Nexalog v2 — service appended to the joeybuilt compose on prod-host.
+# Joins the existing app network to reach postgres.
+# Secrets come from /srv/stack/.env (referenced, not inlined).
+services:
+  nexalog-v2:
+    image: nexalog-v2:latest
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: nexalog-web
+    restart: unless-stopped
+    ports:
+      - "3300:3300"
+    environment:
+      NODE_ENV: production
+      PORT: "3300"
+      HOSTNAME: 0.0.0.0
+      NEXT_TELEMETRY_DISABLED: "1"
+      # /repo IS the brain git repo root (this dir holds .git + gbrain.yml + people/ etc.)
+      BRAIN_REPO: /repo
+      GIT_AUTHOR_NAME: Nexalog
+      GIT_AUTHOR_EMAIL: nexalog@example.com
+      # Phase 2b: GBrain MCP — the brain's index/graph/retrieval layer.
+      # The key is injected from the deploy env-file (never inline a secret).
+      GBRAIN_MCP_URL: https://gbrain.example.com/mcp
+      GBRAIN_API_KEY: ${GBRAIN_API_KEY}
+      # App state: NEW database nexalog_v2 — do NOT reuse another app's database
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/nexalog_v2
+      # Identity: SHARED Better Auth `auth` schema in the shared DB (same as v1).
+      # Single login universe — v2 must NOT fork its own auth tables.
+      AUTH_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/appdb
+      AUTH_SECRET: ${AUTH_SECRET}
+      BETTER_AUTH_URL: https://app.nexalog.com
+      TRUSTED_ORIGIN: https://app.nexalog.com
+      DISABLE_SIGN_UP: "true"
+      NEXT_PUBLIC_APP_URL: https://app.nexalog.com
+      # WebAuthn RP ID = registrable domain (parent domain covers the subdomain)
+      NEXT_PUBLIC_RP_ID: nexalog.com
+    volumes:
+      # NOTE: the brain git repo root is .../brain/pages (verified — .git lives there).
+      - /srv/brain/pages:/repo
+    networks:
+      - app-net
+      - ingress-net
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3300/').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  app-net:
+    external: true
+    name: app-net
+  ingress-net:
+    external: true
+    name: ingress-net

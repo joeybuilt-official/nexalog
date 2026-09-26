@@ -1,0 +1,18 @@
+{
+  "name": "nexalog",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @nexalog/web dev",
+    "build": "pnpm --filter @nexalog/web build",
+    "start": "pnpm --filter @nexalog/web start",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "depcruise": "node scripts/check-architecture.mjs"
+  },
+  "devDependencies": {
+    "dependency-cruiser": "^17.4.3",
+    "typescript": "^5.9.3"
+  }
+}

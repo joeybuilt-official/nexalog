@@ -1,0 +1,89 @@
+# Starter CI workflow — the ONE plane that binds every agent, in any tool.
+#
+# Nexalog currently has **no CI at all** (`.github/workflows/` does not exist) and **no
+# `.claude/settings.json` permission gate**. That makes every guardrail in AGENTS.md advisory prose
+# for every harness — Claude Code included. A required status check is what actually blocks a bad
+# merge, because it runs on the server, not on anyone's machine, and cannot be skipped with
+# `--no-verify`.
+#
+# This matters more here than in the sibling apps: the database is the **shared Postgres**, and
+# `pnpm db:push` (`drizzle-kit push`) is a one-command way to drop columns across other apps' schemas.
+#
+# TO MAKE IT REAL (two steps, both done by a human once):
+#   1. Copy this file to `.github/workflows/verify.yml`. The commands below are ALREADY filled in from
+#      nexalog's real `package.json` scripts and `Dockerfile` (pnpm 10, Node 22) — nothing to replace.
+#   2. In repo Settings → Branches, add a branch-protection rule on `main` that marks the `verify`
+#      check REQUIRED and forbids force-push / direct push. `scripts/init-repo-protection.sh` does
+#      this once someone with admin auth runs it. Until step 2, this workflow reports but does not
+#      block — see AGENTS.md → "Enforcement — the honest version".
+#
+# NOT WIRED, deliberately: `scripts/check-expert-review.sh`. It requires a `checklist.md` with pending
+# items under `docs/claude/`; nexalog keeps its checklists at the repo root instead, so the gate can
+# never pass as written. Either move the checklists under `docs/claude/<area>/<slug>/` (where they
+# belong per PANOPLY-OPTIMIZATION.md §1) or leave this step out.
+#
+# NOT WIRED: an architecture-boundary check. There is no `.dependency-cruiser.cjs` and no `depcruise`
+# script here. Adding one is worthwhile — see `.claude/rules/clean-architecture.md` → "Known gaps".
+
+name: verify
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history, so the docs gate can diff against the PR base
+
+      # pnpm 10 + Node 22, matching the Dockerfile (`RUN npm install -g pnpm@10`, `FROM node:22-alpine`).
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Agent-mirror drift — fails if any tool-native file (.cursor/.clinerules/.windsurf/.github/
+      # copilot-instructions.md, GEMINI.md, CONVENTIONS.md) or the AGENTS.md rules block is stale vs
+      # AGENTS.md + .claude/rules/*.md. This is what keeps every tool's inlined ruleset honest.
+      - name: Agent mirrors in sync
+        run: sh scripts/sync-agents.sh --check
+
+      # Docs landing gate — fails if any commit in this PR changed code but not the worklog.
+      # Nexalog has no CHANGELOG.md/HISTORY.md, so check-docs.sh resolves to docs/claude/worklog.md.
+      - name: Docs in sync
+        run: sh scripts/check-docs.sh --since "${{ github.event.pull_request.base.sha }}"
+        if: github.event_name == 'pull_request'
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      # Architecture boundaries — not wired: no .dependency-cruiser.cjs in this repo yet.
+      # - name: Architecture boundaries
+      #   run: pnpm depcruise
+
+      # Expert-review gate — not viable here yet. See the note at the top of this file.
+      # - name: Expert review
+      #   run: sh scripts/check-expert-review.sh --since "${{ github.event.pull_request.base.sha }}"
+      #   if: github.event_name == 'pull_request'
+
+      # Secret scan — recommended; nothing scans this repo today. Pin the gitleaks CLI and verify the
+      # release checksum before executing it (see fylo's workflow for a working example); the
+      # gitleaks-action needs a paid license for org-owned repos.
+      # - name: Secret scan
+      #   run: gitleaks git . --no-banner --redact

@@ -1,0 +1,49 @@
+# In Progress
+
+**Read this first.** The ordered queue of what is next. Top of the list is what to pick up now.
+Every item points at a plan doc — if an item has no plan doc, it is not ready to start.
+
+When an item ships: remove its row from here, delete its `in-progress.d/<slug>.md` fragment, move its
+folder into `<area>/completed/`, and add an entry to `completed-features.md` — all in the same commit
+as the code.
+
+> **Status of this file.** Created 2026‑09‑19 during the Panoply re-adapt. Before that nexalog had a
+> `roadmap.md` but **no queue at all**, so this is a first reconstruction from `roadmap.md` + the three
+> existing plan docs + the root-level `HANDOFF.md` / `checklist*.md` scratch files. Rows marked
+> *(unverified)* were inferred from a plan doc's own last-written status line and have **not** been
+> re-checked against `main`. Re-verify a row against source before you start it.
+
+## Active queue
+
+| # | Item | Area | Plan doc | Status | Notes |
+|---|------|------|----------|--------|-------|
+| 1 | Second-brain remediation — Phase 0.5/0.6 deploy-gap reconciliation (before P1) | `platform` | [`platform/second-brain-remediation/plan.md`](platform/second-brain-remediation/plan.md) §Phase 0.5/0.6 | Open — roadmap calls this P0.5 | The plan has explicit "immediate next steps (before P1)" and a separate operator-gated section. Read §Operator-gated steps first; several steps will not run autonomously. |
+| 2 | PKM expansion Tiers 0–3 — Phase 0.1 telemetry & dead-path hygiene, then Tier 1 | `platform` | [`platform/pkm-expansion/plan.md`](platform/pkm-expansion/plan.md) | Executing *(unverified — "at fold" per roadmap)* | Gate-dense phased arc. Phase 1.4 (data export / "exit door") **ADR APPROVED 2026‑09‑26** — `adr/0019-exit-door-data-export.md` is **Accepted for scope + format** (whole-account; repo files byte-for-byte + `manifest.json` with per-file sha256; ZIP via the existing `archiver`; stream from first byte + size cap; `git bundle` opt-in; export deletes nothing). **Deletion is NOT approved — split to `adr/0021-deletion-and-purge-semantics.md` (Proposed, operator's).** Two questions stay open and block nothing on their own: Q5 (legacy v1 store) awaits the read-only prod inspection, Q8 (who can export). Q1–Q4, Q6, Q7 dispositions are in the ADR. |
+| 3 | Projects — reference-based containers | `platform` | [`platform/projects/plan.md`](platform/projects/plan.md) | **Reconciled 2026-09-25 — NOT shipped in this repo. ⚠ Phase 2 hard stop CLEARED 2026‑09‑26: ADR-0018 Accepted; Phase 3 may start on the pure `packages/core` slice, with the migration/adapter/route slice HELD on `nexalog_v2` provenance (design §5)** | The plan doc's "SHIPPED + LIVE @ 2026‑06‑12" was **V1-only** (the app at `/srv/nexalog-v1`); §1.7 commit `1866c2c` deleted every V2 Projects route and page. What remains is remnants (dead `drizzle/0012`+`0015` SQL, orphaned `lib/projects/*`, three `schema.ts` declarations — `schema.projects` is still wired into the **live** `/api/sync` routes). Dispositions of the six operator questions are in `adr/0018-*` §Operator decisions: Q2/Q3/Q4/Q6 take the ADR's defaults; **Q5 is not answered by the approval** and is being closed by a read-only production inspection. Phase 5 stays operator-gated. || 4 | Wire the plan-contract gates into CI | repo | `scripts/templates/ci-verify.yml` | **Workflow installed 2026-09-20 — report-only, and CANNOT be made required**: GitHub free plan 403s protection/rulesets on private repos | `.github/workflows/verify.yml` runs the two kit gates + typecheck / lint / test / build on every PR and push to `main`. Operator approved marking `verify` required; both APIs returned 403 (plan limit, org-wide). Options + details in the fragment — do not retry the APIs. |
+| 5 | Legacy v1 routes — pick the real direction after the honest-degradation stopgap | `platform` | [`in-progress.d/legacy-v1-routes-stopgap.md`](in-progress.d/legacy-v1-routes-stopgap.md) | **Stopgap SHIPPED 2026-09-26 (PR #48, merged). Real direction is an OPEN operator decision — candidates named in the fragment** | Five carried-over v1 surfaces (`/api/sync`, `/api/sync/mutations`, `/api/notes`, `/api/bookmarks`, `/api/journal`) query the v1 content model through `{ db }` (`DATABASE_URL` → `nexalog_v2`, 3 tables) while their 34 tables live in the shared **`pushd`** db — every query raised `42P01` and 500'd, failing mobile sync in prod. They now degrade to a 503 `surface_unavailable`. **Not fixed:** the DB split itself. The open decision is repoint / migrate / retire — do not change a `DATABASE_URL`, move data, or run `pnpm db:push` before the operator picks. |
+
+## Blocked / waiting
+
+| Item | Blocked on | Since |
+|------|-----------|-------|
+| Mark `verify` required on `main` (queue row 4) | GitHub **free** plan — protection + rulesets APIs 403 on private repos; needs org upgrade to Team (or accept report-only) | 2026-09-20 |
+| Exit door — deletion semantics | **`adr/0021-deletion-and-purge-semantics.md` (Proposed, 2026‑09‑26)** — the operator has not decided: two-step flow, grace window, git-history disclosure, shared-`auth` blast radius, legacy-store scope. Nothing implements deletion until this returns | 2026-09-26 |
+| Projects Phase 3 — migration/adapter/route slice | `nexalog_v2` provenance (**Q5**) — being closed by a **read-only production inspection**, not assumed from the repo. The pure `packages/core` slice is NOT blocked and may start now | 2026-09-26 |
+| Exit door — Q5 legacy v1 store in scope (and the fate of the shipped v1 `/api/export` route) | Same read-only production inspection — whether prod's `nexalog_v2` still holds the 34-table v1 content is unverified from the repo. Does not gate the approved repo export | 2026-09-26 |
+| Projects Phase 5 — ship gate | Operator-gated push target + deploy + prod migration | plan doc |
+| Second-brain remediation operator-gated steps | See §Operator-gated steps in the plan — will not run autonomously | plan doc |
+| Legacy v1 routes — the real direction (queue row 5) | **Operator decision** (the 2026-09-26 stopgap call deferred it): repoint at `pushd` vs migrate the tables into `nexalog_v2` vs retire the v1 surfaces — see `in-progress.d/legacy-v1-routes-stopgap.md`. Prod data migration would be operator-gated regardless | 2026-09-26 |
+
+## Parked / directional
+
+See `roadmap.md` → "Planned — never built (folded from stray plan dirs)". Those rows are the durable
+record for work consolidated out of `/srv/nexalog-*-plan` on 2026‑08‑29; the working dirs are
+archived under `/srv/plans/`. Do not resurrect a parked initiative into this queue without
+moving its `roadmap.md` row first.
+
+## Fragments
+
+`in-progress.d/<slug>.md` is the single backlog shared by every harness (Claude Code, the Phalanx
+loop, OpenCode, Plexo) — see `PANOPLY-OPTIMIZATION.md` §1a. This table is the human-readable
+view; the fragment is the durable record and carries the machine-readable frontmatter. A fragment dies
+with its merge: delete it in the same PR that ships the work.

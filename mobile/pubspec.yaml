@@ -1,0 +1,40 @@
+name: nexalog_mobile
+description: Nexalog mobile client — native, offline-first PKM.
+publish_to: "none"
+version: 1.0.28+28
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  flutter_riverpod: ^2.5.1
+  go_router: ^14.2.7
+  dio: ^5.7.0
+  sqflite: ^2.3.3
+  path: ^1.9.0
+  path_provider: ^2.1.4
+  flutter_secure_storage: ^10.3.1
+  connectivity_plus: ^6.0.5
+  intl: ^0.19.0
+  url_launcher: ^6.3.0
+  flutter_html: ^3.0.0
+  speech_to_text: ^7.0.0
+  flutter_tts: ^4.2.0
+  super_editor: 0.3.0-dev.52
+  # Pin html to 0.15.6: 0.15.7 dropped the top-level `matches()` in
+  # package:html/src/query_selector.dart that flutter_html 3.0.0 calls
+  # (styled_element.dart) — breaks on Flutter 3.44 with "Method not found".
+  html: 0.15.6
+  record: ^6.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

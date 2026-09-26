@@ -1,0 +1,23 @@
+{
+  "//": "Depcruise-only tsconfig. dependency-cruiser runs from the repo root and needs a single TS project spanning the monorepo so `@/*` aliases and workspace imports resolve; the per-package tsconfigs stay authoritative for builds. Mirrors apps/web/tsconfig.json's relevant options, with `@/*` pointed at apps/web/*.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./apps/web/*"]
+    }
+  },
+  "include": ["apps/**/*.ts", "apps/**/*.tsx", "packages/**/*.ts"],
+  "exclude": ["node_modules", "**/node_modules", "**/.next", "apps/web/e2e"]
+}

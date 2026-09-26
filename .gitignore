@@ -1,0 +1,77 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+**/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+**/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files
+.env
+.env.*
+!.env.example
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# ---------------------------------------------------------------------------
+# Agent / Phalanx loop state — machine-local, never commit.
+# See PANOPLY-OPTIMIZATION.md and .claude/rules/documentation.md.
+# ---------------------------------------------------------------------------
+.claude-state.json
+.claude/settings.local.json
+.claude/worktrees/
+.claude-runs/
+.phalanx-*
+.work-off
+.pipeline-off
+.ts-arch-off
+.secret-scan-off
+TASKS.md
+PROGRESS.md
+HANDOFF.md
+next-session.txt
+/progress.md
+/progress-v2.md
+/HANDOFF-nexalog-v2-phase1-merge.md
+.playwright-mcp/
+
+# ---------------------------------------------------------------------------
+# Legacy artifact snapshots — machine-local scratch the operator keeps on disk.
+# Full ANCHORED paths, never a glob: a bare `*.bak` would swallow any legitimate
+# backup file anywhere in the tree. `.claude-state.json` and `next-session.txt`
+# are already covered by the block above (no duplicates here).
+# ---------------------------------------------------------------------------
+/apps/web/app/(auth)/login/login-form.tsx.bak-plexologin-20260827
+/apps/web/app/api/capture/route.legacy.ts.bak
+
+# Build artifacts — binaries do not belong in the repo.
+*.zip

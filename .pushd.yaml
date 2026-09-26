@@ -1,0 +1,43 @@
+version: 1
+builds:
+  android-release:
+    # TAG-ONLY. pushd used to enqueue EVERY entry here on EVERY push webhook, so
+    # this entry built a signed release APK on every branch/PR push: measured over
+    # 60 days, 221 branch-triggered builds / 26.7 compute-hrs against 20 tag builds
+    # / 1.4 hrs (this repo: 75 builds / 4.5 hrs in the last 7 days), each emailing a
+    # ~70MB APK nobody asked for, on a single FIFO worker (BUILD_CONCURRENCY=1).
+    #
+    # On-demand APK builds still work: the manual trigger
+    #   POST /builds {projectId, repoUrl, branch}
+    # bypasses `on:` entirely (kind === undefined), so you can build an APK from
+    # any branch whenever you actually want one.
+    #
+    # Requires the `on:` support from pushd PR #25
+    # (merged 2026-09-26). On an older pushd this key is ignored and the previous
+    # every-push behaviour returns.
+    on:
+      tags: ["v*"]
+    executor: docker
+    type: android
+    flavor: flutter
+    image: ghcr.io/cirruslabs/flutter:3.44.0
+    secrets:
+      - GITHUB_TOKEN
+      - ANDROID_KEYSTORE_BASE64
+      - ANDROID_KEYSTORE_PASSWORD
+      - ANDROID_KEY_ALIAS
+      - ANDROID_KEY_PASSWORD
+    commands:
+      - git clone --depth 1 --branch main https://x-access-token:$GITHUB_TOKEN@github.com/joeybuilt-official/nexalog.git .
+      - printf '\nkotlin.jvm.target.validation.mode=warning\n' >> mobile/android/gradle.properties
+      - printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > /tmp/nexalog-upload.jks
+      - >-
+        keytool -list -keystore /tmp/nexalog-upload.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null 2>&1 || { echo "KEYSTORE_GUARD_FAIL: keystore, alias or password do not match - refusing to build an APK that would silently fall back to debug signing"; exit 1; }
+      - cd mobile && flutter pub get
+      - cd mobile && ANDROID_KEYSTORE_PATH=/tmp/nexalog-upload.jks flutter build apk --release
+      - >-
+        cd mobile && APKSIGNER=$(ls /opt/android-sdk-linux/build-tools/*/apksigner | head -1) && "$APKSIGNER" verify --print-certs build/app/outputs/flutter-apk/app-release.apk 2>&1 | grep -iE "CN=Nexalog|O=Joeybuilt" >/dev/null && echo "SIGNING_GUARD_OK: APK signed with the upload keystore" || { echo "SIGNING_GUARD_FAIL: APK is NOT signed with the upload keystore (debug-signed fallback?) - refusing to ship"; exit 1; }
+    artifacts:
+      - mobile/build/app/outputs/flutter-apk/app-release.apk
+    deliver:
+      - email

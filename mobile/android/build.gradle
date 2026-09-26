@@ -1,0 +1,78 @@
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.buildDir = '../build'
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+}
+subprojects {
+    project.evaluationDependsOn(':app')
+}
+
+// Force every subproject (including plugins) to JVM 17 so Kotlin (17) and
+// Java compile targets agree. Some plugins — e.g. receive_sharing_intent —
+// declare Kotlin jvmTarget=17 but leave Java sourceCompatibility at 1.8,
+// which fails Gradle's "Inconsistent JVM-target compatibility" check.
+//
+// `afterEvaluate` can't be used here because the `subprojects {
+// evaluationDependsOn(':app') }` block above forces eager evaluation of
+// some subprojects during root configuration, and afterEvaluate registered
+// later trips "Cannot run Project.afterEvaluate(Closure) when the project
+// is already evaluated". `plugins.withId` + `tasks.withType` are reactive
+// and work regardless of evaluation timing.
+subprojects {
+    ["com.android.application", "com.android.library"].each { pluginId ->
+        plugins.withId(pluginId) {
+            android {
+                compileOptions {
+                    sourceCompatibility JavaVersion.VERSION_17
+                    targetCompatibility JavaVersion.VERSION_17
+                }
+            }
+        }
+    }
+    plugins.withId("org.jetbrains.kotlin.android") {
+        tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+            kotlinOptions {
+                jvmTarget = "17"
+            }
+        }
+    }
+    // Patch JavaCompile tasks directly too — plugins like receive_sharing_intent
+    // bake sourceCompatibility 1.8 into their JavaCompile tasks during plugin
+    // evaluation, and the android.compileOptions override above can race that.
+    // Directly retargeting the JavaCompile tasks via configureEach is what
+    // actually resolves the "Java=1.8, Kotlin=17" mismatch.
+    tasks.withType(JavaCompile).configureEach {
+        sourceCompatibility = "17"
+        targetCompatibility = "17"
+    }
+}
+
+// Final pass, after every subproject has finished evaluating. Some plugins —
+// e.g. flutter_tts on AGP 8.9 / Kotlin 2.1 — bake their Java compile target to
+// 11 inside their own android block, which runs AFTER the reactive
+// `plugins.withId` hooks above and leaves Java=11 vs Kotlin=17 ("Inconsistent
+// JVM-target compatibility"). `gradle.projectsEvaluated` runs last, so forcing
+// both compile targets to 17 here wins deterministically.
+gradle.projectsEvaluated {
+    subprojects {
+        tasks.withType(JavaCompile).configureEach {
+            sourceCompatibility = "17"
+            targetCompatibility = "17"
+        }
+        tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+            kotlinOptions {
+                jvmTarget = "17"
+            }
+        }
+    }
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}

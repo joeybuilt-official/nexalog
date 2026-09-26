@@ -1,0 +1,26 @@
+{
+  "name": "@nexalog/adapters",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nexalog infrastructure adapters. Depends on core only.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@nexalog/core": "workspace:*",
+    "drizzle-orm": "^0.45.1",
+    "js-yaml": "^4.1.0",
+    "postgres": "^3.4.8"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
