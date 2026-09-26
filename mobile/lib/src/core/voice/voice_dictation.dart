@@ -85,7 +85,7 @@ class _MicButtonState extends State<MicButton> {
       tooltip: _listening ? "Stop dictation" : widget.tooltip,
       icon: Icon(
         _listening ? Icons.mic : Icons.mic_none,
-        color: _listening ? Colors.red : null,
+        color: _listening ? Theme.of(context).colorScheme.error : null,
       ),
       onPressed: _toggle,
     );
