@@ -27,9 +27,11 @@ until Phase 5) and Q6 (web-first; parity after) all take the ADR's own defaults.
 is approved. The deliverables for the record are `docs/claude/platform/projects/design.md` and
 ADR-0018, which supersedes `platform/projects/adr/0001-nexalog-projects.md` (V1-era, Postgres-first).
 
-**Q5 — `nexalog_v2` provenance — is NOT answered by the approval.** It is a production fact, and it
-is being closed by a **read-only production inspection, not assumed from the repo**. Consequence,
-and it is now the shape of Phase 3:
+**Q5 — `nexalog_v2` provenance — was ANSWERED 2026-09-26** by the read-only production inspection
+the approval called for: `nexalog_v2` holds only the 3 v2 app-state tables and **no v1 content at
+all**, so Projects DDL there is a `CREATE`, never an `ALTER` — the hold on the migration slice is
+released for the DDL question. The **data** half (Projects' member content lives in `pushd.nexalog`)
+folded into queue row 5 and the operator's **retire, staged** direction. Shape of Phase 3 now:
 
 - **May start now:** the pure `packages/core` slice — domain (`LifecycleState`, `MemberRef`),
   contracts, use cases, port declarations. Zero-dep, testable with fakes, cannot be wrong about what
