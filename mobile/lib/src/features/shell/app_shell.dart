@@ -160,6 +160,7 @@ class _SidebarDrawer extends ConsumerWidget {
       _NavItem("/app/today", Icons.today_outlined, "Today"),
       _NavItem("/app/journal", Icons.book_outlined, "Journal"),
       _NavItem("/app/inbox", Icons.inbox_outlined, "Inbox"),
+      _NavItem("/app/captures/review", Icons.rule, "Capture review"),
       _NavItem("/app/review", Icons.replay_outlined, "Review"),
     ]),
     _NavGroup("Capture", <_NavItem>[
