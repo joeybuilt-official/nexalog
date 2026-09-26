@@ -48,8 +48,11 @@ prevent drift. Inlining is what makes the contract provider-neutral.
 refuses the destructive commands below (`pnpm db:push` first among them) — but it binds **Claude Code
 only**. Every other harness that reads this block (Codex, Cursor, Copilot, Gemini, Windsurf, Cline,
 aider, OpenCode) gets these guardrails as **prose**, and CI (`.github/workflows/verify.yml`) runs the
-typecheck / lint / test / build and the docs + mirror gates on every PR but is **report-only** until
-branch protection marks the `verify` check required. One hole closed, not all of them — so these
+typecheck / lint / test / build and the docs + mirror gates on every PR. As of 2026-09-26 the repo is
+public and `verify` **is a required check on `main`** — branch protection is live (admins enforced,
+no force-push, no deletion), so a red `verify` now actually blocks a merge. The permission gate still
+binds Claude Code only: CI is a merge gate, not a sandbox, and every other harness gets these rules as
+prose. One hole closed, not all of them — so these
 guardrails are doctrine, and they are absolute:
 
 - **NEVER** push to `main` directly. Branch + PR, always.
@@ -133,8 +136,9 @@ apps'. See the MUST NOT list above. Migrations are generated, reviewed, and appl
   loudly on a degraded cruise. Do not replace it with a bare `depcruise` invocation.
 
 CI (`.github/workflows/verify.yml`) re-runs all three on every PR and push to `main` — but it is
-report-only until `verify` is marked required (GitHub free plan 403s private-repo protection), so
-your local run is still the gate that matters.
+**required** on `main` since 2026-09-26 (the old 403 was the *private*-repo plan limit, not a missing
+entitlement — the same call succeeds now that the repo is public). Run it locally anyway: CI reports
+after the fact, and a required check gates the merge, not the work.
 
 ## Hard Rules
 - All tables in the `nexalog` PG schema, never `public`
@@ -205,10 +209,14 @@ per-user workflow rules stay in local `~/.claude/` memory, never here.
   one harness that reads the file. It is one harness: Cursor, Copilot, Codex, Gemini, Windsurf, Cline,
   aider and OpenCode never read `.claude/settings.json`, so for them the MUST NOT list is still
   **prose**. The gate is also not a sandbox — it constrains the agent's tool calls, not the shell.
-- **There is still no branch protection.** CI exists as of 2026-09-20 — `.github/workflows/verify.yml`
-  (the `verify` job: frozen-lockfile install, `sync-agents.sh --check`, the `check-docs.sh` landing
-  gate, `pnpm typecheck / lint / test / build`) runs on every PR and push to `main` — but it is
-  **report-only**: a red `verify` does not block a merge until the check is marked required.
+- **Branch protection is live as of 2026-09-26.** `.github/workflows/verify.yml` (the `verify` job:
+  frozen-lockfile install, `sync-agents.sh --check`, the `check-docs.sh` landing gate,
+  `pnpm typecheck / lint / test / build`) runs on every PR and push to `main`, and `verify` is a
+  **required** status check on `main` — a red `verify` blocks the merge. Secret scanning and push
+  protection are enabled on the same repo. Known residual holes, accepted knowingly: a PR can edit
+  `verify.yml` and be checked by the edited version; protection gates git merges, not shells
+  (`pnpm db:push` remains ungated); and with `enforce_admins: true` a stalled Actions report blocks a
+  merge until the rule is edited.
 - For every harness other than Claude Code — and for a bad merge in general — the guardrails above
   remain **doc-level doctrine only**. They bind you by agreement, not by a gate. Treat that as a reason
   for more care, not less.

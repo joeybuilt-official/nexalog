@@ -43,8 +43,11 @@ alwaysApply: true
 refuses the destructive commands below (`pnpm db:push` first among them) — but it binds **Claude Code
 only**. Every other harness that reads this block (Codex, Cursor, Copilot, Gemini, Windsurf, Cline,
 aider, OpenCode) gets these guardrails as **prose**, and CI (`.github/workflows/verify.yml`) runs the
-typecheck / lint / test / build and the docs + mirror gates on every PR but is **report-only** until
-branch protection marks the `verify` check required. One hole closed, not all of them — so these
+typecheck / lint / test / build and the docs + mirror gates on every PR. As of 2026-09-26 the repo is
+public and `verify` **is a required check on `main`** — branch protection is live (admins enforced,
+no force-push, no deletion), so a red `verify` now actually blocks a merge. The permission gate still
+binds Claude Code only: CI is a merge gate, not a sandbox, and every other harness gets these rules as
+prose. One hole closed, not all of them — so these
 guardrails are doctrine, and they are absolute:
 
 - **NEVER** push to `main` directly. Branch + PR, always.
