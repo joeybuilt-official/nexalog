@@ -135,9 +135,9 @@ class _CaptureReviewScreenState extends ConsumerState<CaptureReviewScreen> {
               child: ListView(
                 children: <Widget>[
                   const SizedBox(height: 120),
-                  const Center(
+                  Center(
                     child: Icon(Icons.check_circle_outline,
-                        size: 56, color: Colors.green),
+                        size: 56, color: Theme.of(context).colorScheme.primary),
                   ),
                   const SizedBox(height: 16),
                   Center(
@@ -147,10 +147,10 @@ class _CaptureReviewScreenState extends ConsumerState<CaptureReviewScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  const Center(
+                  Center(
                     child: Text(
                       "Captures the worker was unsure about land here.",
-                      style: TextStyle(color: Colors.grey),
+                      style: TextStyle(color: Theme.of(context).colorScheme.outline),
                     ),
                   ),
                 ],

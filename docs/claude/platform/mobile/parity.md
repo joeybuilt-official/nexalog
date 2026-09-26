@@ -150,44 +150,43 @@ in this matrix:
   Hermes worker did, read through `getComposition().listInbox` → `FsGitBrainStore` (the brain repo
   is the source of record), rendering the `nexalog.proposal` block and `status: review`.
 
-### 2.2 Web API route inventory — 44 route directories
+### 2.2 Web API route inventory — 45 route directories
 
 ```sh
 git ls-files 'apps/web/app/api/**' | grep 'route\.ts$' | sed 's|^apps/web/app/api/||;s|/route\.ts$||' | sort
 ```
 
 ```text
-auth/[...all]                 journal                       search
-auth/keypair                  journal/[date]                settings
-auth/passkey/authenticate     notes                         sync
-auth/passkey/authenticate-verify   notes/[id]               sync/mutations
-auth/passkey/register         notes/[id]/backlinks          today/cards
-auth/passkey/register-verify  notes/[id]/links              workspaces
-auth/recovery/redeem          notes/[id]/snapshots
-bookmarks                     notes/[id]/tags
-bookmarks/[id]                notes/[id]/unlinked-mentions
-bookmarks/[id]/assign         notes/resolve
-bookmarks/backfill            notes/search
-bookmarks/collections         review
-bookmarks/collections/[id]    capture
-bookmarks/tags                captures/[id]/archive
-bookmarks/tags/[id]           captures/[id]/find-free-version
-export                        captures/[id]/open
-graph                         captures/[id]/reader
-health                        captures/[id]/review
-img                           captures/[id]/touch-extract
+auth/[...all]                      capture                           notes/[id]
+auth/keypair                       captures                          notes/[id]/backlinks
+auth/passkey/authenticate          captures/[id]/archive             notes/[id]/links
+auth/passkey/authenticate-verify   captures/[id]/find-free-version   notes/[id]/snapshots
+auth/passkey/register              captures/[id]/open                notes/[id]/tags
+auth/passkey/register-verify       captures/[id]/reader              notes/[id]/unlinked-mentions
+auth/recovery/redeem               captures/[id]/review              notes/resolve
+bookmarks                          captures/[id]/touch-extract       notes/search
+bookmarks/[id]                     export                            review
+bookmarks/[id]/assign              graph                             search
+bookmarks/backfill                 health                            settings
+bookmarks/collections              img                               sync
+bookmarks/collections/[id]         journal                           sync/mutations
+bookmarks/tags                     journal/[date]                    today/cards
+bookmarks/tags/[id]                notes                             workspaces
 ```
 
-### 2.3 Mobile surfaces — 15 screens
+### 2.3 Mobile surfaces — 16 screens
 
 ```sh
 git ls-files 'mobile/lib/**' | grep '_screen\.dart$' | sort
 ```
 
-`auth/sign_in` · `bookmarks/bookmarks` · `bookmarks/reader` · `capture/capture` · `inbox/inbox` ·
-`journal/journal_entry` · `journal/journal_list` · `notes/note_editor` · `notes/notes_list` ·
-`review/review` · `search/search` · `settings/settings` · `shared/placeholder` · `today/today` ·
-`voice/voice_memo`
+`auth/sign_in` · `bookmarks/bookmarks` · `bookmarks/reader` · `capture/capture` ·
+`captures/capture_review` · `inbox/inbox` · `journal/journal_entry` · `journal/journal_list` ·
+`notes/note_editor` · `notes/notes_list` · `review/review` · `search/search` ·
+`settings/settings` · `shared/placeholder` · `today/today` · `voice/voice_memo`
+
+(`captures/capture_review` is new — the §4.1 unblock. `shared/placeholder` is dead code with
+no importer and no route, so it counts as a file but not as a surface.)
 
 ### 2.4 Two documents the code cites that do not exist
 
@@ -196,17 +195,34 @@ git ls-files 'mobile/lib/**' | grep '_screen\.dart$' | sort
 | `parity-nexalog.md` | **Absent from every ref** (§0 item 1). Superseded by this document. |
 | `docs/design/direction.md` (named in `progress-v2.md` §Phase 1D as the home of the Knowledge Garden tokens) | **Absent.** The entire `docs/design/` directory is absent from every ref. The live design system is `apps/web/app/globals.css`; treat that file as the design spec — see §4.2. |
 
-### 2.5 Mobile's API surface — 18 call sites, 2 of them dead
+### 2.5 Mobile's API surface — 21 call sites, 2 of them dead
 
 ```sh
-git grep -ohE '"/api/[a-zA-Z0-9_${}/:.-]+"' -- mobile/lib | tr -d '"' | sort -u
+# BOTH quote styles. The double-quote-only version of this pattern silently
+# missed `/api/ai/inline` (single-quoted in wysiwyg_note_editor.dart) and
+# undercounted the table by one for the whole life of this document.
+git grep -ohE "[\"']/api/[a-zA-Z0-9_${}/:.-]+[\"']" -- mobile/lib | tr -d "\"'" | sort -u
+# Still invisible to any literal grep: URLs whose interpolation contains a call,
+# e.g. `"/api/captures/${Uri.encodeComponent(captureId)}/review"` — the `(` and
+# `)` are outside the character class. Count those by hand:
+git grep -nE '"/api/[^"]*\$\{[^}]*\(' -- mobile/lib
 ```
 
-Resolve against §2.2 (**16 live**): `/api/auth/sign-in/email` · `/api/auth/sign-out` ·
-`/api/auth/sign-up/email` · `/api/capture` · `/api/captures/{id}/reader` · `/api/notes/{id}/backlinks` ·
-`/api/notes/{id}/links` · `/api/notes/{id}/snapshots` · `/api/notes/{id}/tags` ·
+The corrected pattern finds **20 literals**; the invisible `/api/captures/{id}/review`
+POST makes **21 call sites**, of which **2 are dead** (`/api/ai/inline`, `/api/query-views`
+— both below), so **19 are live**. Those 19 resolve to only **16 distinct §2.2 routes**,
+because three of them hit Better Auth's single `auth/[...all]` catch-all and two spell
+`notes/[id]/tags` with different interpolation names (`$id` vs `$noteId`).
+
+**Live (19 call sites → 16 routes):** `/api/auth/sign-in/email` · `/api/auth/sign-out` ·
+`/api/auth/sign-up/email` (all three → `auth/[...all]`) · `/api/capture` · `/api/captures` ·
+`/api/captures/{id}/reader` · `/api/captures/{id}/review` · `/api/notes/{id}/backlinks` ·
+`/api/notes/{id}/links` · `/api/notes/{id}/snapshots` · `/api/notes/{id}/tags` (two spellings) ·
 `/api/notes/{id}/unlinked-mentions` · `/api/notes/search` · `/api/review` · `/api/search` ·
 `/api/sync` · `/api/sync/mutations` · `/api/workspaces`
+
+> `/api/captures` and `/api/captures/{id}/review` are new with the mobile capture-review
+> surface (2026-09-26) — the §4.1 unblock. Mobile previously had no capture concept at all.
 
 **Dead (2) — both 404 in production:**
 
@@ -244,7 +260,7 @@ Legend — **status** is about *surface coverage*, not code quality:
 | 12 | `/app/settings` | `settings/settings_screen.dart` | **Partial** | Present: email display, dark-mode toggle, sync status, sign-out. Missing most of the web page: **Password** (change), **Billing**, **Workspaces** (management — mobile has a *switcher* in the drawer, not management), **Web History** (save flag / denylist / retention), and **Your data** → `GET /api/export`. Mobile calls `/api/settings` nowhere. | Each web section either implemented or explicitly out of scope. |
 | 13 | `/app/graph` | *(none)* | **Missing** | **No mobile screen and no route.** The Knowledge Garden — the signature v2 surface — is entirely absent from the app. No `/api/graph` caller. **2026-09-26 — the token system it will draw with now exists** (`theme/knowledge_garden_tokens.dart`, plus the pure type→colour mapping and a hardcoded-colour gate — see §4.2); the *surface* does not, and this row stays **Missing**. | A native garden surface, or a recorded decision to defer it (which is a parity-gate exception and needs the operator). Tracked in `docs/claude/in-progress.d/mobile-knowledge-garden.md`; §6 D4 item 4. |
 | 14 | `/app/share` | native `ShareReceiverActivity.kt` | **Matched (other means)** | Covered, but **outside `mobile/lib`** — a translucent Kotlin `ACTION_SEND`/`text/plain` activity that reads the stored bearer token, extracts the first URL, and POSTs `/api/capture`. Extracts URLs only (no text-only shares); no queueing when offline. Note: a `_screen.dart` glob will never see this — do not score this surface "missing". | URL + text shares, offline-queueable. |
-| 15 | `/inbox` (**capture review**) | *(none)* | **Missing** | **No mobile screen, and no way to build one today.** The operator accept/reject queue does not exist on mobile, and it is *architecturally blocked* — see §4.1: captures are not a sync entity and there is no HTTP route that lists captures by status. | A native review surface, gated on a captures API (§4.1). |
+| 15 | `/inbox` (**capture review**) | `captures/capture_review_screen.dart` | **Partial** | **Was Missing and architecturally blocked (§4.1); the blocker is now resolved.** `GET /api/captures` lists captures by status and `captures/capture_review_screen.dart` (routed `/app/captures/review`, in the sidebar) renders the proposal — summary, confidence, page chips, link pairs — and posts accept/reject to `/api/captures/{id}/review`, with reject two-step (web house rule) and a 409 refetch. **Outstanding, per `adr/0020-mobile-v2-parity-gate.md` D3:** this surface is **HTTP-only** — it has no mirror-backed read path and no queueable write path, so it needs a session to show anything. That is a stated exception rather than a silent one: captures live in the brain git repo, not in Postgres, and `GET /api/sync` carries five Postgres entities, so mirroring them would need a new sync entity (§4.1). **D2 (design parity):** the screen now uses semantic `Theme.of(context)` tokens throughout (the two raw `Colors.green`/`Colors.grey` literals it shipped with were moved to `colorScheme.primary`/`colorScheme.outline` in the same change). The repo-wide D2 gap is unchanged and separate: `mobile/lib/src/theme/app_theme.dart` derives everything from one copper seed and defines none of `globals.css`'s 7 `--color-type-*` tokens, so no surface is type-tinted the way web is. | Mirror-backed read + queueable write, or a recorded decision that an operator-only surface may stay online; then the D2 token rebuild. |
 | 16 | `/login` | `auth/sign_in_screen.dart` | **Partial** | Email + password sign-in/sign-up works, with the bearer token captured from `set-auth-token`. Missing: **passkey / WebAuthn** (`PasskeyLogin`, the ADR-0016 identity root), **Google** sign-in (feature-flagged), and **recovery-code redemption** (`/api/auth/recovery/redeem`). Mobile calls none of the passkey, keypair or recovery routes. | Decide which identity paths mobile must support; passkey is the documented identity root, so absence needs a decision either way. |
 | 17 | `/` (marketing) | *(none)* | **N/A** | No mobile equivalent is meaningful. | — |
 | 18 | `/offline` | native offline-first (mirror + queue) | **Matched (other means)** | Not a screen — a mechanism. Web uses a service worker + IDB outbox (`adr/0010-offline-strategy.md`); mobile uses `sqflite` + a mutation queue + `/api/sync`. Functionally covered. | — |
@@ -261,14 +277,18 @@ Of **22 web page surfaces**:
 |---|---|---|
 | Matched | **2** | `/app/journal`, `/app/journal/today` |
 | Matched (other means) | **2** | `/app/share` (Kotlin), `/offline` (native offline-first) |
-| Partial | **11** | today, journal/[date], app/inbox, review, notes, notes/[id], bookmarks, reader, search, settings, login |
-| **Missing** | **2** | `/app/graph`, `/inbox` (capture review) |
+| Partial | **12** | today, journal/[date], app/inbox, captures/capture_review, review, notes, notes/[id], bookmarks, reader, search, settings, login |
+| **Missing** | **1** | `/app/graph` (Knowledge Garden) |
 | Not ported | **4** | cookie, privacy, refund, terms |
 | N/A | **1** | `/` |
 | **Total** | **22** | |
 
-**Surfaces carrying outstanding work: 17** (11 partial + 2 missing + 4 not ported) — of which 2 are
-entirely absent. Fully matched: 2. Covered by another mechanism: 2. N/A: 1.
+**Surfaces carrying outstanding work: 17** (12 partial + 1 missing + 4 not ported) — of which 1 is
+entirely absent (`/app/graph`). Fully matched: 2. Covered by another mechanism: 2. N/A: 1.
+
+> **2026-09-26:** `/inbox` (capture review) moved **Missing → Partial** — `GET /api/captures`
+> unblocked §4.1 and `captures/capture_review_screen.dart` now lists + decides. It stays in the
+> outstanding count because it is HTTP-only (no D3 mirror/queue path); see matrix row 15.
 
 Plus mobile-only surfaces with no web route to match, tracked separately in §5.
 
@@ -276,7 +296,7 @@ Plus mobile-only surfaces with no web route to match, tracked separately in §5.
 
 ## 4. Structural findings that gate the rebuild
 
-### 4.1 Captures are not synced, and there is no route that lists them — the review surface is blocked
+### 4.1 Captures are not synced — but the review surface is no longer blocked (resolved 2026-09-26)
 
 This is the single largest mobile-side gap.
 
@@ -286,20 +306,28 @@ This is the single largest mobile-side gap.
   current set is five. The substantive gap is unchanged: captures are absent.)
 - `POST /api/sync/mutations` mirrors that same five-entity scope in its `ENTITY_TABLES` map and its
   field allowlists. Captures are not client-mutable.
-- **No HTTP endpoint exists that lists captures by status.** The only reader is the server-rendered
-  `apps/web/app/inbox/page.tsx`, which calls `getComposition().listInbox.execute(...)` →
-  `FsGitBrainStore` (a filesystem read of `inbox/<ulid>.md` in the brain repo). That use case is
-  wired in `apps/web/composition.ts` and **exposed by no route handler** — verified:
-  `git grep -n 'listInbox\|ListInbox' -- apps/web/app` returns only `apps/web/app/inbox/page.tsx`
-  and a test.
-- The per-capture routes that do exist (`/api/captures/[id]/review`, `/archive`, `/open`,
-  `/find-free-version`, `/touch-extract`, `/reader`) all require an `id` the client cannot obtain,
-  because nothing enumerates captures.
+- ~~**No HTTP endpoint exists that lists captures by status.**~~ **Resolved 2026-09-26:**
+  `apps/web/app/api/captures/route.ts` (`GET /api/captures?status=&limit=`) projects the same
+  `getComposition().listInbox` the web page reads, returns `{captures, counts}` with counts over the
+  **whole** inbox, and normalizes the untrusted `nexalog.proposal` block once in
+  `apps/web/lib/captures/capture-dto.ts` (via the same `describeProposal` the web surface renders
+  through) so the raw block never reaches a client. `git grep -n 'listInbox\|ListInbox' -- apps/web/app`
+  now returns the inbox page, the new route, and their tests.
+- The per-capture routes (`/api/captures/[id]/review`, `/archive`, `/open`, `/find-free-version`,
+  `/touch-extract`, `/reader`) all require an `id` the client previously could not obtain, because
+  nothing enumerated captures. `GET /api/captures` supplies those ids now, so all six are reachable
+  from a native client.
 
-**Consequence:** matrix row 15 (`/inbox`, capture review) is not "a screen someone hasn't written
-yet" — it is **blocked on a server-side API that does not exist.** Any plan for a native review
-surface must sequence the API first: either add `captures` to `/api/sync`, or add an
-`inbox`/captures-list route that projects `ListInbox`.
+**Consequence (superseded):** matrix row 15 (`/inbox`, capture review) *was* **blocked on a
+server-side API that did not exist.** That gap is now closed: `GET /api/captures` projects
+`ListInbox` (the dedicated-route option this section offered, rather than adding `captures` to
+`/api/sync`), and `mobile/lib/src/features/captures/capture_review_screen.dart` consumes it. **The
+sync half is still true** — captures are not a `/api/sync` entity — which is exactly why the shipped
+mobile surface is **HTTP-only** and therefore carries an outstanding `adr/0020-mobile-v2-parity-gate.md`
+**D3** gap (no mirror-backed read, no queueable write). Row 15 is **Partial**, not Matched, until
+that is resolved or explicitly waived. The two options for closing D3 remain open: mirror captures
+as a new sync entity (needs a Postgres projection of a git-repo-backed list — non-trivial), or record
+a decision that an operator-only, decision-taking surface may stay online-only.
 
 **Encouraging detail:** `mobile/lib/src/core/offline/app_db.dart` models the mirror generically
 (`mirror(entity, id, json, updated_at)`) and `sync_engine.dart` upserts whatever entity names the
@@ -491,8 +519,14 @@ are **both numbered 0001**, so an unqualified "ADR-0001" in this repo is already
 
 Listed so they are owned, not lost:
 
-1. **Captures API** (§4.1) — the review surface (row 15) is blocked on a server API. Which shape:
-   add `captures` to `/api/sync`, or a dedicated list route projecting `ListInbox`?
+1. ~~**Captures API** (§4.1) — the review surface (row 15) is blocked on a server API. Which
+   shape: add `captures` to `/api/sync`, or a dedicated list route projecting `ListInbox`?~~
+   **Answered 2026-09-26:** the dedicated route shipped — `GET /api/captures` projects
+   `ListInbox`, and `/api/sync` still carries five Postgres entities (captures live in the brain
+   git repo, so they were never a good sync entity). **The successor question is the D3 one:** the
+   shipped mobile surface is HTTP-only with no mirror-backed read and no queueable write. Mirror
+   captures as a new sync entity (needs a Postgres projection of a git-backed list), or record a
+   decision that an operator-only surface may stay online-only? See matrix row 15.
 2. **Legal surfaces** (rows 19–22) — Play listings require a reachable privacy policy. Link out or
    render in-app?
 3. **Identity paths** (row 16) — passkey is the documented identity root (`adr/0016`); mobile has
