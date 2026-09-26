@@ -14,15 +14,17 @@ Phases are individually tagged `[N]` (no gate, reversible) or `[P]`/⚠ (gated).
 export / "exit door" was ⚠ GATE: ADR-0002 — and the gate is now CLEARED for scope + format
 (2026-09-26).** The ADR is `adr/0019-exit-door-data-export.md`, now **Accepted except deletion**;
 all deletion semantics were split out by the operator to `adr/0021-deletion-and-purge-semantics.md`
-(**Proposed** — the operator's to decide).
+(**Accepted 2026-09-26** — all five sub-decisions answered; dispositions in its §Open questions).
+Deletion implementation is gated behind the export build: no purge flow before the v2 export exists.
 
 **ADR-0019 status (2026-09-26):** `adr/0019-exit-door-data-export.md` is **Accepted for everything
 except deletion** — D1 whole-account scope, D2 format (the repo's own files byte-for-byte + a
 `manifest.json` with a per-file `sha256`; ZIP via the already-present `archiver`; a `git bundle` as
 the **opt-in** second artifact), D3 delivery (stream from the first byte + a configured size cap;
 async deferred), D5 the `export_events` record, and D4.1/D4.4 (export deletes nothing; no shadow
-archive). **NOT approved: D4.2/D4.3 — the deletion flow, the grace window, the git-history
-disclosure, the shared-identity blast radius — deferred to `adr/0021-*`.** Dispositions of the
+archive). **D4.2/D4.3 — the deletion flow, the grace window, the git-history disclosure, the
+shared-identity blast radius — were deferred to `adr/0021-*` and are decided there
+(Accepted 2026-09-26).** Dispositions of the
 eight open questions are recorded in the ADR: Q1–Q4, Q6, Q7 answered (single-user confirmed;
 whole-account; git bundle opt-in; stream + cap are the defaults); **Q5 (legacy v1 store in scope)
 was ANSWERED 2026-09-26** by the read-only production inspection — `nexalog_v2` holds no v1 content,

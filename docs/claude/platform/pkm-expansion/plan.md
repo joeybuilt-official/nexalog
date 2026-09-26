@@ -37,9 +37,9 @@ Close **table-stakes credibility** gaps first (a magic moat behind a broken fron
 - **Scope:** The Android SEND intent is declared but dead (no Dart receiver). Add a share-receiver plugin → POST to `/api/capture`. This is the highest-leverage mobile fix (capture-on-the-go is table stakes) without committing to a full native rewrite.
 - **Deps:** none (parallelizable). **Ship gate:** APK build green (Pushd tag flow); device share-to-Nexalog verified.
 
-### Phase 1.4 — Data export / "exit door" `[N]` **⚠ GATE: ADR-0002 — CLEARED 2026-09-26 for scope + format (`adr/0019-exit-door-data-export.md` Accepted except deletion; deletion is `adr/0021-deletion-and-purge-semantics.md`, still Proposed)**
+### Phase 1.4 — Data export / "exit door" `[N]` **⚠ GATE: ADR-0002 — CLEARED 2026-09-26 for scope + format (`adr/0019-exit-door-data-export.md` Accepted except deletion; deletion is `adr/0021-deletion-and-purge-semantics.md`, Accepted 2026-09-26)**
 - **Scope:** A real export endpoint (markdown-with-frontmatter for notes + JSON for captures/links/tags). Removes the "data jail" — the deepest sovereignty deficit and an Obsidian table-stake.
-- **Deps:** ~~ADR-0002 approved~~ **ADR approved 2026-09-26:** `adr/0019-exit-door-data-export.md` (Accepted for scope + format — repo files byte-for-byte + `manifest.json` with per-file sha256, ZIP, stream + cap). **Deletion semantics are NOT approved and live in `adr/0021-*` (Proposed).** Still open and not gating the export build: Q5 (legacy v1 store) awaits the read-only prod inspection; Q8 (who can export). **Ship gate:** standard + round-trip sanity (export → re-import parity check).
+- **Deps:** ~~ADR-0002 approved~~ **ADR approved 2026-09-26:** `adr/0019-exit-door-data-export.md` (Accepted for scope + format — repo files byte-for-byte + `manifest.json` with per-file sha256, ZIP, stream + cap). **Deletion semantics were approved 2026-09-26 and live in `adr/0021-*` (Accepted; dispositions in its §Open questions).** Deletion implementation is gated behind this phase's export build — no purge flow before the v2 export exists. Q5 (legacy v1 store) was answered by the read-only prod inspection; Q8 (who can export) remains open and does not gate the export build. **Ship gate:** standard + round-trip sanity (export → re-import parity check).
 
 ### Phase 1.5 — Templates `[N]` (TS)
 - **Scope:** Note templates (daily-note, meeting, project) — repeatable structure, low effort, removes a glaring "every PKM has this" gap.
@@ -107,8 +107,8 @@ Close **table-stakes credibility** gaps first (a magic moat behind a broken fron
 | ADR | One-way door | Gates phase | Status |
 |---|---|---|---|
 | 0002 | Data export / portability format | 1.4 | **Superseded for v2 — see 0019 below** (kept as the historical record) |
-| 0019 | Exit door: data export / portability | 1.4 | **Accepted 2026-09-26 for scope + format — EXCEPT deletion, split to `adr/0021-deletion-and-purge-semantics.md` (Proposed)** |
-| 0021 | Deletion and purge semantics (split out of 0019) | 1.4 (deletion half) | **Proposed — awaiting operator approval; decides nothing yet** |
+| 0019 | Exit door: data export / portability | 1.4 | **Accepted 2026-09-26 for scope + format — deletion split to `adr/0021-deletion-and-purge-semantics.md` (Accepted 2026-09-26)** |
+| 0021 | Deletion and purge semantics (split out of 0019) | 1.4 (deletion half) | **Accepted 2026-09-26 — all five sub-decisions answered (typed confirmation; 30-day cancellable window; disclose + delete-and-fresh; Nexalog-scoped deactivation; v1 store out of scope). Implementation gated behind the export build** |
 | 0003 | Embeddings & clustering ownership (Path A vs B) + pgvector freeze | 3.3 | **Proposed — needs approval** |
 | 0004 | Knowledge structure: opaque-text vs typed objects | 2.3 (typed-object branch only) | **Proposed — needs approval** |
 | 0005 | KG schema + node-merge + re-ingest + graph-ws salt | 3.4 | **Proposed — needs approval** |

@@ -1,7 +1,7 @@
 # ADR-0019 — The exit door: data export, portability, and deletion
 
 - **Status**: **Accepted 2026-09-26 for scope, format, delivery and the audit record — EXCEPT
-  deletion, which is split out to `adr/0021-deletion-and-purge-semantics.md` (Proposed).** The
+  deletion, which is split out to `adr/0021-deletion-and-purge-semantics.md` (Accepted 2026-09-26).** The
   approval covers D1 (whole-account scope), D2 (bundle format, ZIP, git-bundle opt-in), D3
   (streamed delivery + byte cap) and D5 (the `export_events` record) — plus D4.1 and D4.4, which
   are inherited by ADR-0021. **D4.2 and D4.3 — the deletion flow, the grace window, the git-history
@@ -10,8 +10,8 @@
   inspection the approval called for — `nexalog_v2` holds no v1 content at all, the v1 store is the
   shared `pushd` database's `nexalog` schema, and the approved repo export does not reach it (§Open
   questions Q5). Q8 (who can export) remains open.
-- **Deletion**: split out — see `adr/0021-deletion-and-purge-semantics.md` (Proposed, the
-  operator's to decide). A reader looking for deletion lands there.
+- **Deletion**: split out — see `adr/0021-deletion-and-purge-semantics.md` (**Accepted
+  2026-09-26**; all five sub-decisions answered). A reader looking for deletion lands there.
 - **Accepted**: 2026-09-26 (operator; dispositions per §Open questions — operator dispositions)
 - **Date**: 2026-09-25 · **Renumbered** from 0018 when the Projects Phase 2 design took that number
   in the same batch.
