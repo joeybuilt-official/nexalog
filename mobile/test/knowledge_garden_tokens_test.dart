@@ -157,7 +157,7 @@ void main() {
         gardenGroupForNode(type: "unknown", slug: "concepts/litellm"),
         GardenGroup.concepts,
       );
-      expect(gardenGroupForNode(slug: "people/dustin-olenslager"), GardenGroup.people);
+      expect(gardenGroupForNode(slug: "people/example-person"), GardenGroup.people);
     });
 
     test("notes and inbox slugs fall through to null, not a guess", () {

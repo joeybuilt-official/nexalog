@@ -284,7 +284,7 @@ GardenGroup? gardenGroupForType(String? type) {
 }
 
 /// Web `groupForNode`: the frontmatter type when we have one, else the slug's
-/// first path segment (`people/dustin-olenslager` → people). Null for anything
+/// first path segment (`people/example-person` → people). Null for anything
 /// the five chips do not cover.
 GardenGroup? gardenGroupForNode({String? type, String? slug}) {
   final GardenGroup? fromType = gardenGroupForType(type);
