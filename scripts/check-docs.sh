@@ -64,7 +64,25 @@ check_files() {
   return 0
 }
 
+# --- conflict-marker sweep ---
+# A resolved-but-unresolved merge (markers staged, resolution committed) puts literal
+# <<<<<<< / ======= / >>>>>>> lines into shipped files. check-docs runs in required CI,
+# so sweep every tracked file here: the patterns are written as regexes (no literal
+# seven-character runs in this script, so it cannot match itself).
+sweep_markers() {
+  git grep -nE '^(<{7}( |$)|={7}$|>{7}( |$))' -- . 2>/dev/null
+}
+markers="$(sweep_markers || true)"
+if [ -n "$markers" ]; then
+  echo "check-docs: unresolved conflict markers in tracked files:" >&2
+  printf '%s\n' "$markers" | head -10 | sed 's/^/  /' >&2
+  fail_markers=1
+else
+  fail_markers=0
+fi
+
 fail=0
+[ "$fail_markers" -eq 1 ] && fail=1
 
 if [ "${1:-}" = "--since" ]; then
   ref="${2:?usage: check-docs.sh --since <ref>}"
