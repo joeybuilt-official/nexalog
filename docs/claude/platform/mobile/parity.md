@@ -242,7 +242,7 @@ Legend — **status** is about *surface coverage*, not code quality:
 | 10 | `/app/bookmarks/[id]/reader` | `bookmarks/reader_screen.dart` | **Partial** | Text, read-minutes and a paywalled chip are present with a retry. Missing: HTML fidelity (mobile **strips** `html` to text, so inline links and images are lost; web renders sanitised `readerHtml` in a typography article), `ReaderChrome`, `FindFreeVersionButton`, and the web's auto-fire of extraction when `reader_state` is pending/failed. | HTML render + free-version lookup + auto-extract. |
 | 11 | `/app/search` | `search/search_screen.dart` | **Partial** | Genuinely close: `POST /api/search`, sort, kind facets, and a list/table/board/calendar lens switcher (the web `content-finder` lenses). Two defects: `/api/query-views` is **dead** (§2.5) so saved smart-views silently return nothing; and web parses a query DSL (`lib/search/query-dsl.ts`) that mobile does not. | Fix or remove the saved-views surface; decide on DSL support. |
 | 12 | `/app/settings` | `settings/settings_screen.dart` | **Partial** | Present: email display, dark-mode toggle, sync status, sign-out. Missing most of the web page: **Password** (change), **Billing**, **Workspaces** (management — mobile has a *switcher* in the drawer, not management), **Web History** (save flag / denylist / retention), and **Your data** → `GET /api/export`. Mobile calls `/api/settings` nowhere. | Each web section either implemented or explicitly out of scope. |
-| 13 | `/app/graph` | *(none)* | **Missing** | **No mobile screen and no route.** The Knowledge Garden — the signature v2 surface — is entirely absent from the app. No `/api/graph` caller. | A native garden surface, or a recorded decision to defer it (which is a parity-gate exception and needs the operator). |
+| 13 | `/app/graph` | *(none)* | **Missing** | **No mobile screen and no route.** The Knowledge Garden — the signature v2 surface — is entirely absent from the app. No `/api/graph` caller. **2026-09-26 — the token system it will draw with now exists** (`theme/knowledge_garden_tokens.dart`, plus the pure type→colour mapping and a hardcoded-colour gate — see §4.2); the *surface* does not, and this row stays **Missing**. | A native garden surface, or a recorded decision to defer it (which is a parity-gate exception and needs the operator). Tracked in `docs/claude/in-progress.d/mobile-knowledge-garden.md`; §6 D4 item 4. |
 | 14 | `/app/share` | native `ShareReceiverActivity.kt` | **Matched (other means)** | Covered, but **outside `mobile/lib`** — a translucent Kotlin `ACTION_SEND`/`text/plain` activity that reads the stored bearer token, extracts the first URL, and POSTs `/api/capture`. Extracts URLs only (no text-only shares); no queueing when offline. Note: a `_screen.dart` glob will never see this — do not score this surface "missing". | URL + text shares, offline-queueable. |
 | 15 | `/inbox` (**capture review**) | *(none)* | **Missing** | **No mobile screen, and no way to build one today.** The operator accept/reject queue does not exist on mobile, and it is *architecturally blocked* — see §4.1: captures are not a sync entity and there is no HTTP route that lists captures by status. | A native review surface, gated on a captures API (§4.1). |
 | 16 | `/login` | `auth/sign_in_screen.dart` | **Partial** | Email + password sign-in/sign-up works, with the bearer token captured from `set-auth-token`. Missing: **passkey / WebAuthn** (`PasskeyLogin`, the ADR-0016 identity root), **Google** sign-in (feature-flagged), and **recovery-code redemption** (`/api/auth/recovery/redeem`). Mobile calls none of the passkey, keypair or recovery routes. | Decide which identity paths mobile must support; passkey is the documented identity root, so absence needs a decision either way. |
@@ -313,15 +313,49 @@ server sends. Mobile is therefore *already structured* to receive a `captures` e
   and friends fail to compile. Page *type* is the accent system: `--color-type-person`,
   `-company`, `-project`, `-concept`, `-note`, `-source`, `-media`. Light (paper) and dark (ink)
   are both defined.
-- Mobile: `mobile/lib/src/theme/app_theme.dart` defines one constant, `kCopper = Color(0xFFC07040)`,
-  and derives the whole scheme from `ColorScheme.fromSeed(seedColor: kCopper)`. That is a
-  **stock Material 3 theme seeded with a copper accent** — it does not implement the Knowledge
-  Garden token set, and type colors do not exist.
 - The document that was supposed to be the design authority, `docs/design/direction.md`, **does not
   exist in any ref** (§2.4). `apps/web/app/globals.css` is the only live design source of truth.
 
-Design parity is therefore a real, named piece of the rebuild (§1), and its spec is
-`apps/web/app/globals.css` — not the missing roadmap-named file.
+**2026-09-26 — the mobile half of the token system now exists.** `mobile/lib/src/` carries:
+
+| Artifact | What it is |
+|---|---|
+| `theme/knowledge_garden_tokens.dart` | The token layer: `KnowledgeGardenTokens` (base tokens, a `ThemeExtension` registered by `buildNexalogTheme`) + `GardenTypePalette` (`--t-*`), both in light and dark, every hex transcribed from `globals.css`. Single source of colour truth for mobile. |
+| same file — `gardenGroupForType` / `gardenGroupForNode` / `gardenTypeToken` / `gardenGroupToken` / `gardenNodeColor` | The pure type → colour mapping, mirroring `apps/web/app/graph/graph-canvas.tsx` `TYPE_VAR` / `GROUP_VAR` / `typeColor()` and `apps/web/lib/graph/filters.ts` `TYPE_TO_GROUP` / `groupForType` / `groupForNode`. The dual spelling (`people` from a seed's slug segment, `person` from a page's frontmatter type) folds onto one group exactly as the web folds it. |
+| `test/no_hardcoded_colors_test.dart` | The enforcement wall. Fails when a colour literal (`Color(0x…)`, `Color.fromARGB`, a `Colors.*` palette access, or a bare 8-digit hex int) appears under `mobile/lib` outside the token file. Dart has no `--color-*: initial`, so the wall has to be a test. |
+| `test/knowledge_garden_tokens_test.dart` | Unit tests: every token against its `globals.css` hex, the dual-spelling fold, the slug fallback, and the honest degradation. |
+
+**Verified:** a deliberate `Color(0xFF4E7A3C)` + `Colors.grey` added to
+`features/today/today_screen.dart` was **caught** (`flutter test test/no_hardcoded_colors_test.dart`
+went red naming both lines), and the same test is **green** once removed —
+`flutter analyze` reports no error and all **41** tests pass (`ghcr.io/cirruslabs/flutter:3.44.0`).
+
+**Honest limits of this port — recorded rather than papered over:**
+
+1. **The garden surface itself is still missing.** Row 13 (`/app/graph`) is unchanged: no screen, no
+   route, no `/api/graph` caller. This port lands the *token system the surface will draw with*; it
+   does not render a garden.
+2. **No colour value was invented, and two could not be ported because the web has none.** The web's
+   own `--color-*: initial` wall means the raw Tailwind classes it uses at these two sites resolve to
+   **nothing**: `text-green-500` (`app/(app)/app/review/page.tsx`, the "All caught up!" icon) and
+   `bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300`
+   (`components/review-card.tsx`, the "New" badge). Mobile renders both through **Material's semantic
+   roles** (`colorScheme.primary` / `colorScheme.error`) and the real garden tokens
+   (`surface2` / `accent` / `muted` / `mutedForeground`) instead. If the web is meant to have a
+   success/info token, that is a web change and a decision, not something to guess at here.
+3. **Material's `ColorScheme` is still seed-derived.** `buildNexalogTheme` continues to call
+   `ColorScheme.fromSeed(seedColor: kCopper)` — the tokens ride alongside it as a `ThemeExtension`
+   rather than replacing it token-by-token. The garden tokens are now the only place a *new* colour
+   may be defined; they are not yet the only colour the app renders.
+4. **The wall is a text scan, and says so.** It cannot catch a colour computed at runtime
+   (`Color(int.parse(hex))` — the workspace accent in `features/shell/app_shell.dart` is exactly this,
+   matching the web's `workspace-switcher.tsx`) or one laundered through a constant outside `lib/`.
+   It also does not scan `mobile/test/**`, where fixtures legitimately need colours. The boundary and
+   its rationale are documented in the test file itself.
+
+Design parity is therefore **partially** landed: the spec (`apps/web/app/globals.css`) is now
+implemented in Dart as the app's single source of colour truth, with a real gate behind it — and the
+surface that most needs it is still to be built.
 
 ### 4.3 Offline-first must be preserved
 

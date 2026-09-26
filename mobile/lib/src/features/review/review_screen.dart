@@ -1,6 +1,7 @@
 import "package:flutter/material.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 
+import "../../theme/knowledge_garden_tokens.dart";
 import "review_providers.dart";
 
 /// Spaced-review session (web parity §P7). One card at a time; 4 grade buttons.
@@ -27,6 +28,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final KnowledgeGardenTokens tokens = KnowledgeGardenTokens.of(context);
     final AsyncValue<List<ReviewItem>> items = ref.watch(reviewProvider);
     return Scaffold(
       appBar: AppBar(title: const Text("Spaced Review")),
@@ -35,15 +37,28 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
         error: (Object e, _) => Center(child: Text("Error: $e")),
         data: (List<ReviewItem> list) {
           if (list.isEmpty || _idx >= list.length) {
-            return const Center(
+            // `--t-person` is the garden's only green, and it belongs to the
+            // *person* page type — using it for "done" would be exactly the
+            // category error the token system exists to prevent. The web's
+            // `text-green-500` here resolves to nothing under its own
+            // `--color-*: initial` wall (globals.css defines no success token),
+            // so this uses Material's semantic `primary` rather than inventing
+            // a garden token. See the PR's honest-limits section.
+            return Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  Icon(Icons.check_circle_outline, size: 56, color: Colors.green),
-                  SizedBox(height: 16),
-                  Text("All caught up!", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-                  SizedBox(height: 8),
-                  Text("No items due for review.", style: TextStyle(color: Colors.grey)),
+                  Icon(
+                    Icons.check_circle_outline,
+                    size: 56,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text("All caught up!",
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  Text("No items due for review.",
+                      style: TextStyle(color: tokens.mutedForeground)),
                 ],
               ),
             );
@@ -78,6 +93,7 @@ class ReviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final KnowledgeGardenTokens tokens = KnowledgeGardenTokens.of(context);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -88,9 +104,19 @@ class ReviewCard extends StatelessWidget {
               spacing: 6,
               runSpacing: 4,
               children: <Widget>[
-                if (item.isNew) _Badge("New", Colors.blue.shade100, Colors.blue.shade700),
-                if (item.kind != null) _Badge(item.kind!, null, null),
-                if (item.themeLabel != null) _Badge(item.themeLabel!, null, null),
+                // The web marks "New" with `bg-blue-100 text-blue-700` /
+                // `dark:bg-blue-900/40 dark:text-blue-300` — classes that
+                // resolve to NOTHING under globals.css's own `--color-*: initial`
+                // palette wall, because the web defines no "new"/success token.
+                // There is therefore no web value to port. Rather than invent a
+                // colour, this uses the garden's real accent pair so the badge
+                // stays distinct; the gap is recorded in the PR and in
+                // docs/claude/platform/mobile/parity.md §4.2.
+                if (item.isNew)
+                  _Badge("New", tokens.surface2, tokens.accent),
+                if (item.kind != null) _Badge(item.kind!, tokens.muted, tokens.mutedForeground),
+                if (item.themeLabel != null)
+                  _Badge(item.themeLabel!, tokens.muted, tokens.mutedForeground),
               ],
             ),
             const SizedBox(height: 10),
@@ -108,7 +134,13 @@ class ReviewCard extends StatelessWidget {
               children: <Widget>[
                 FilledButton(
                   onPressed: disabled ? null : () => onGrade(0),
-                  style: FilledButton.styleFrom(backgroundColor: Colors.red.shade400),
+                  // Destructive — Material's semantic `error`, matching the
+                  // web's `variant="destructive"` on the same button. globals.css
+                  // defines no destructive token either.
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                    foregroundColor: Theme.of(context).colorScheme.onError,
+                  ),
                   child: const Text("Again"),
                 ),
                 OutlinedButton(onPressed: disabled ? null : () => onGrade(1), child: const Text("Hard")),

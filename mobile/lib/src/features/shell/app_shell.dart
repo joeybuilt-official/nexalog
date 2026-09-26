@@ -247,6 +247,12 @@ class _SidebarDrawer extends ConsumerWidget {
 class _WorkspaceSwitcher extends ConsumerWidget {
   const _WorkspaceSwitcher();
 
+  /// A workspace's own accent, supplied by the server as a hex string — user
+  /// *data*, not a design token, so it is deliberately outside the Knowledge
+  /// Garden palette (the web does the same at
+  /// `components/workspace-switcher.tsx`: `backgroundColor: active.color`).
+  /// This is the runtime-computed case `no_hardcoded_colors_test.dart` documents
+  /// as out of scope for a text scan.
   Color _dot(String hex) {
     final String h = hex.replaceFirst("#", "");
     final int? v = int.tryParse(h.length == 6 ? "FF$h" : h, radix: 16);
