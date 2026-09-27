@@ -21,6 +21,25 @@ Append-only, never pruned. On ship: promote the durable entry to `completed-feat
 
 <!-- new lines below, newest first -->
 
+- 2026-09-27 · **Mobile v2 cutover (2/5): the voice memo now uploads its audio, and the recording
+is deleted only after the server confirms it.** The old screen POSTed a JSON body
+(`{kind:"voice", content:"[Voice recording]", workspaceId}`) to a handler that reads
+`await req.formData()`, so every attempt 400'd — and the `finally` block deleted the local file
+regardless of the result, so every memo was lost while the UI could still say `Saved`. The upload is
+now the multipart form the live intake route parses: the recording travels as a `file` entry with its
+`audio/m4a` content type (the handler collects every key starting with `file`, derives the capture
+kind from the MIME type and normalizes audio server-side, so no client-side transcoding), with no
+workspace field and no JSON body. Extraction lives in
+`mobile/lib/src/features/voice/voice_memo_upload.dart` as a free function precisely so the
+file-lifecycle contract is testable without the recorder plugin: it returns the server's `captureId`
+and deletes the local copy only after a real 201, and on failure the file stays on disk and the screen
+says the recording was kept for a retry. Also drops the dead `ws == null` gate and the `Error: $e`
+leak. `mobile/test/voice_memo_upload_test.dart` asserts the wire body carries the audio MIME and no
+`workspaceId`, and proves both halves of the lifecycle — file gone on 201, file intact (bytes
+verified) on 400 and on a request that never landed ·
+`mobile/lib/src/features/voice/{voice_memo_screen,voice_memo_upload}.dart`,
+`mobile/test/voice_memo_upload_test.dart` · mobile v2 cutover
+
 - 2026-09-27 · **Mobile v2 cutover (1/5): text capture now posts to the live intake route, and a
 success toast can no longer lie.** The deployed backend's only working write path is
 `POST /api/capture` (multipart, brain-repo backed), while the v1 mutation queue the mobile capture
