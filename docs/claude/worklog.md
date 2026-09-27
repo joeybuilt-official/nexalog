@@ -21,6 +21,27 @@ Append-only, never pruned. On ship: promote the durable entry to `completed-feat
 
 <!-- new lines below, newest first -->
 
+- 2026-09-27 · **Mobile v2 cutover (3/5): Today reads the live inbox, and the mirrored notes section
+stays — empty, but honest.** The landing screen's only list was fed by the local notes mirror, which
+fills solely from the v1 sync delta; on the current deployment that delta has no tables behind it, so
+the screen showed an empty list forever while the capture bar above it queued into the same dead
+path. `Recent captures` is added on top, read from the already-live `GET /api/captures` through the
+existing `CaptureReviewRepo` — one definition of "what is in the inbox", shared with the review
+surface rather than a second parser — rendering title, status and captured time, and tapping a row
+goes to `/app/captures/review`, the surface that can actually act on it. The Today capture bar now
+posts to the live intake route, clears its field only on a real 201, and shows the server's reason
+inline on failure. **The `Recently saved` mirror section is deliberately KEPT, not deleted:** whether
+the v1 surfaces are retired or repointed at the store that holds their tables is an open operator
+decision, and under a repoint this section revives with no change here. Its empty state now explains
+why the mirror can be empty and states that the captures above are unaffected — an unexplained empty
+list is how an operator concludes their notes vanished, which is the same class of silent loss this
+cutover exists to remove. `/api/today/cards` is dead and is deliberately NOT wired.
+`mobile/test/today_screen_test.dart` covers the live read, the row tap's destination, the empty
+inbox, the kept mirror section in BOTH empty and populated states, and a 503 that must report
+honestly rather than leak a raw exception ·
+`mobile/lib/src/features/today/today_screen.dart`, `mobile/test/today_screen_test.dart` ·
+mobile v2 cutover
+
 - 2026-09-27 · **Mobile v2 cutover (2/5): the voice memo now uploads its audio, and the recording
 is deleted only after the server confirms it.** The old screen POSTed a JSON body
 (`{kind:"voice", content:"[Voice recording]", workspaceId}`) to a handler that reads
