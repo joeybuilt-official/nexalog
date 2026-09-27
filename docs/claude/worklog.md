@@ -21,6 +21,24 @@ Append-only, never pruned. On ship: promote the durable entry to `completed-feat
 
 <!-- new lines below, newest first -->
 
+- 2026-09-27 · **Mobile v2 cutover (1/5): text capture now posts to the live intake route, and a
+success toast can no longer lie.** The deployed backend's only working write path is
+`POST /api/capture` (multipart, brain-repo backed), while the v1 mutation queue the mobile capture
+screens enqueued into (`/api/sync/mutations`) does not drain — so the old flow showed
+`Captured to Inbox` over data that never left the device, behind a `ws == null` gate that a dead
+`/api/workspaces` made permanent on a fresh install. New
+`mobile/lib/src/core/api/capture_repo.dart` sends the multipart form the handler actually parses
+(`text` OR `url`, `source: web`, no workspace field) through the existing `ApiClient` so the durable
+bearer clears the edge gate, returns the server's `captureId` on a real 201, and maps every other
+outcome to a typed `CaptureError` — 4xx carrying the server's own `error` text, a request that never
+landed carrying the `network` code and the words *the capture was NOT saved*.
+`capture_screen.dart` and `quick_capture_sheet.dart` are rewired onto it with the workspace gates
+deleted, url-vs-text auto-detect kept, and success shown only on 201; a failure keeps the text on
+screen. `mobile/test/capture_repo_test.dart` asserts the wire contract against a faked Dio adapter by
+decoding the request STREAM (the serialized multipart body), not `options.data` ·
+`mobile/lib/src/core/api/capture_repo.dart`, `mobile/lib/src/features/capture/{capture_screen,quick_capture_sheet}.dart`,
+`mobile/test/capture_repo_test.dart` · mobile v2 cutover
+
 - 2026-09-26 · **The operator approved ADR-0021 — all five deletion sub-decisions are answered,
 and the record moves Proposed → Accepted.** Q1: typed confirmation (type the sign-in identifier)
 with a review screen stating five facts — layers deleted, purge date, the history disclosure, that
