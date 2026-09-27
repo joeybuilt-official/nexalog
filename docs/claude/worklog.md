@@ -21,6 +21,128 @@ Append-only, never pruned. On ship: promote the durable entry to `completed-feat
 
 <!-- new lines below, newest first -->
 
+- 2026-09-27 · **Mobile v2 cutover (5/5): the backend repoint landed mid-flight, so the mobile change
+is scoped to the defects that were real either way — and every comment that asserted a prod state was
+neutralized.** While this branch was in progress the operator chose to repoint the web app's
+`DATABASE_URL` at the database that actually holds the v1 content tables, which revived
+`/api/notes*`, `/api/journal*`, `/api/bookmarks*`, `/api/sync`, `/api/search`, `/api/review`,
+`/api/workspaces` and the reader route. That invalidated the premise of one planned step and part of
+another. **Cancelled outright:** removing the notes / journal / bookmarks-list / v1-inbox screens and
+their router + nav entries. That step was never committed — the branch carries **zero file deletions**
+— and under a repoint it would have deleted the surface holding the operator's real notes and
+bookmarks. **Kept, and now correct for the wrong-reason test:** the unavailable-state classification
+in `core/api/surface_state.dart` derives its copy from the server's OWN response, so a revived route
+simply stops producing those states and the screens render data with no client change; it is
+load-bearing for genuinely-absent endpoints (`/api/query-views`, `/api/ai/inline` are not implemented
+in this web app at all, so no configuration change can make them answer) and for real 5xx faults. The
+Today screen is **additive**: `Recent captures` was added above the mirrored `Recently saved` notes
+section, which is restored rather than replaced, because that mirror is what `/api/sync` now fills.
+What this commit also fixes is a documentation hazard rather than a behaviour one: nine comments across
+the touched files asserted a transient prod state as fact ("currently unavailable on the deployed
+backend", "the queue never drains", "so it currently fails", "the second case is what happens today"),
+and every one of those became false the moment the repoint shipped. Each is reworded to describe the
+CLIENT CONTRACT — which failure maps to which state, and why — so the comment stays true if the
+backend changes again. A comment that records a deployment fact is a comment with an expiry date; the
+classification behaviour does not expire. No behaviour changed in this commit. Version
+`1.0.28+28` → `1.0.29+29`. Full Dart suite run in the repo's Flutter image; the three repo gates and
+`scrub.py --dry-run` all clean · `docs/claude/worklog.md`, `mobile/pubspec.yaml`,
+`mobile/lib/src/{core/api/{capture_repo,surface_state}.dart,features/capture/{capture_screen,quick_capture_sheet}.dart,features/voice/voice_memo_upload.dart,features/today/today_screen.dart,features/review/{review_providers,review_screen}.dart,features/search/{search_providers,search_screen}.dart,features/bookmarks/reader_screen.dart}`,
+`mobile/test/{today_screen_test,unavailable_states_test}.dart` · mobile v2 cutover
+
+- 2026-09-27 · **Mobile v2 cutover (4/5): a dead surface now says it is dead instead of leaking an
+exception or lying with an empty list.** Three mobile screens call routes whose backing tables the
+deployed app-state database does not carry — the reader (`GET /api/captures/:id/reader`), the SM-2
+spaced-review queue (`GET|POST /api/review`) and search (`POST /api/search`). Each had a different
+dishonest failure mode: reader and review rendered `Text("Error: $e")`, dumping a raw `DioException`
+at the operator; review's `grade()` swallowed the failure in a bare `on DioException {}` and advanced
+the session anyway, so **an answer the server never received looked like a graded card**; search
+caught every failure and degraded to the local mirror, so a server-side outage rendered as "No
+matches" — and the review screen's load failure looked exactly like its real "All caught up!" empty
+state. New `mobile/lib/src/core/api/surface_state.dart` classifies a failure ONCE
+(`offline` / `unavailable` / `rejected` / `unexpected`) and derives the operator copy **from the
+server's own response** — it prefers the server's `message` verbatim, which is why the wording stays
+correct if a surface is repointed and revives: a working route simply stops producing these states and
+the screen renders data again with no client change. The classification matches the server's stable
+`error` code (`surface_unavailable`, from `apps/web/lib/db/surface-unavailable.ts`), never its prose,
+and treats a 404 (route absent from the deployed manifest) and any 5xx as unavailability rather than
+as an empty answer. **The offline/mirror distinction is now load-bearing in search:** only a request
+that NEVER LANDED falls back to the mirror (that is a legitimate answer, and the screen now carries an
+offline banner saying the results are device-local); a server that answered but could not serve does
+not, because the mirror is a stale partial copy of a different store and its zero rows are not a
+search result. `grade()` now throws and the session keeps the card on screen with the reason. The
+saved smart-views rail is removed: `/api/query-views` is absent from the deployed manifest **and does
+not exist in this repo's web app at all**, so unlike the v1 content routes no repoint can revive it —
+a repo that always returned `[]` was dead code presenting itself as a feature. Deliberately NOT
+touched: the v1 notes/journal/bookmarks-list/inbox screens and their router entries. Whether those
+surfaces are retired or repointed at the store that holds their tables is an open operator decision,
+and deleting them would be wrong under a repoint, so they stay. Step 4 of this cutover (removing those v1 screens, their router entries and nav items) was **cancelled, not deferred** — see the entry above.
+`mobile/test/unavailable_states_test.dart` asserts the classification (503 `surface_unavailable`,
+500, 404, a 4xx refusal, and a request that never landed) and pumps Reader / Review / Search against
+503 and 500, requiring the friendly panel, the server's own sentence, the status line, and NO
+`Error:`/`DioException` leak, no `No matches`, no `All caught up!`, and no thrown exception; a live
+200 search still renders its rows ·
+`mobile/lib/src/core/api/surface_state.dart`,
+`mobile/lib/src/features/{bookmarks/reader_screen,bookmarks/bookmarks_screen,review/review_providers,review/review_screen,search/search_providers,search/search_screen}.dart`,
+`mobile/test/unavailable_states_test.dart` · mobile v2 cutover
+
+- 2026-09-27 · **Mobile v2 cutover (3/5): Today reads the live inbox, and the mirrored notes section
+stays — empty, but honest.** The landing screen's only list was fed by the local notes mirror, which
+fills solely from the v1 sync delta; on the current deployment that delta has no tables behind it, so
+the screen showed an empty list forever while the capture bar above it queued into the same dead
+path. `Recent captures` is added on top, read from the already-live `GET /api/captures` through the
+existing `CaptureReviewRepo` — one definition of "what is in the inbox", shared with the review
+surface rather than a second parser — rendering title, status and captured time, and tapping a row
+goes to `/app/captures/review`, the surface that can actually act on it. The Today capture bar now
+posts to the live intake route, clears its field only on a real 201, and shows the server's reason
+inline on failure. **The `Recently saved` mirror section is deliberately KEPT, not deleted:** whether
+the v1 surfaces are retired or repointed at the store that holds their tables is an open operator
+decision, and under a repoint this section revives with no change here. Its empty state now explains
+why the mirror can be empty and states that the captures above are unaffected — an unexplained empty
+list is how an operator concludes their notes vanished, which is the same class of silent loss this
+cutover exists to remove. `/api/today/cards` is dead and is deliberately NOT wired.
+`mobile/test/today_screen_test.dart` covers the live read, the row tap's destination, the empty
+inbox, the kept mirror section in BOTH empty and populated states, and a 503 that must report
+honestly rather than leak a raw exception ·
+`mobile/lib/src/features/today/today_screen.dart`, `mobile/test/today_screen_test.dart` ·
+mobile v2 cutover
+
+- 2026-09-27 · **Mobile v2 cutover (2/5): the voice memo now uploads its audio, and the recording
+is deleted only after the server confirms it.** The old screen POSTed a JSON body
+(`{kind:"voice", content:"[Voice recording]", workspaceId}`) to a handler that reads
+`await req.formData()`, so every attempt 400'd — and the `finally` block deleted the local file
+regardless of the result, so every memo was lost while the UI could still say `Saved`. The upload is
+now the multipart form the live intake route parses: the recording travels as a `file` entry with its
+`audio/m4a` content type (the handler collects every key starting with `file`, derives the capture
+kind from the MIME type and normalizes audio server-side, so no client-side transcoding), with no
+workspace field and no JSON body. Extraction lives in
+`mobile/lib/src/features/voice/voice_memo_upload.dart` as a free function precisely so the
+file-lifecycle contract is testable without the recorder plugin: it returns the server's `captureId`
+and deletes the local copy only after a real 201, and on failure the file stays on disk and the screen
+says the recording was kept for a retry. Also drops the dead `ws == null` gate and the `Error: $e`
+leak. `mobile/test/voice_memo_upload_test.dart` asserts the wire body carries the audio MIME and no
+`workspaceId`, and proves both halves of the lifecycle — file gone on 201, file intact (bytes
+verified) on 400 and on a request that never landed ·
+`mobile/lib/src/features/voice/{voice_memo_screen,voice_memo_upload}.dart`,
+`mobile/test/voice_memo_upload_test.dart` · mobile v2 cutover
+
+- 2026-09-27 · **Mobile v2 cutover (1/5): text capture now posts to the live intake route, and a
+success toast can no longer lie.** The deployed backend's only working write path is
+`POST /api/capture` (multipart, brain-repo backed), while the v1 mutation queue the mobile capture
+screens enqueued into (`/api/sync/mutations`) does not drain — so the old flow showed
+`Captured to Inbox` over data that never left the device, behind a `ws == null` gate that a dead
+`/api/workspaces` made permanent on a fresh install. New
+`mobile/lib/src/core/api/capture_repo.dart` sends the multipart form the handler actually parses
+(`text` OR `url`, `source: web`, no workspace field) through the existing `ApiClient` so the durable
+bearer clears the edge gate, returns the server's `captureId` on a real 201, and maps every other
+outcome to a typed `CaptureError` — 4xx carrying the server's own `error` text, a request that never
+landed carrying the `network` code and the words *the capture was NOT saved*.
+`capture_screen.dart` and `quick_capture_sheet.dart` are rewired onto it with the workspace gates
+deleted, url-vs-text auto-detect kept, and success shown only on 201; a failure keeps the text on
+screen. `mobile/test/capture_repo_test.dart` asserts the wire contract against a faked Dio adapter by
+decoding the request STREAM (the serialized multipart body), not `options.data` ·
+`mobile/lib/src/core/api/capture_repo.dart`, `mobile/lib/src/features/capture/{capture_screen,quick_capture_sheet}.dart`,
+`mobile/test/capture_repo_test.dart` · mobile v2 cutover
+
 - 2026-09-26 · **The operator approved ADR-0021 — all five deletion sub-decisions are answered,
 and the record moves Proposed → Accepted.** Q1: typed confirmation (type the sign-in identifier)
 with a review screen stating five facts — layers deleted, purge date, the history disclosure, that

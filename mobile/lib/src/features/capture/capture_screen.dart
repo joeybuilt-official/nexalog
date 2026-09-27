@@ -2,14 +2,16 @@ import 'dart:developer';
 import "package:flutter/material.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 
-import "../../core/offline/offline_repo.dart";
+import "../../core/api/capture_repo.dart";
 import "../../core/voice/voice_dictation.dart";
-import "../../core/workspace_providers.dart";
 
-/// Quick capture (web parity §3: POST /api/capture). Auto-detects url vs text.
-/// Offline-first: a url is queued as a capture_sources row (server enrichment +
-/// twin-note classification runs server-side when the intent drains); free text
-/// is queued as a raw note. The voice memo + share-target paths follow.
+/// Quick capture against the v2 intake route (POST /api/capture, multipart).
+/// Auto-detects url vs text and sends exactly one of the two fields. There is no
+/// workspace gate — the intake route needs none, and requiring one made capture
+/// depend on a second endpoint — and no offline queue: this used to enqueue into
+/// the `/api/sync` mutations route, so a "capture" could sit on the device while
+/// the UI claimed success. Success is shown ONLY on a real 201 with a captureId;
+/// every failure says what happened and keeps the input.
 class CaptureScreen extends ConsumerStatefulWidget {
   const CaptureScreen({super.key});
 
@@ -21,6 +23,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   final TextEditingController _input = TextEditingController();
   String _detected = "text";
   bool _saved = false;
+  bool _saving = false;
 
   @override
   void dispose() {
@@ -41,46 +44,29 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   Future<void> _save() async {
     log('route.start', name: 'capture');
     final String text = _input.text.trim();
-    if (text.isEmpty) return;
-    final String? ws = await ref.read(activeWorkspaceIdProvider.future);
-    if (ws == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text("Sync once online before capturing.")));
-      }
-      return;
-    }
-    final OfflineRepo repo = ref.read(offlineRepoProvider);
-    if (_detected == "url") {
-      await repo.create(
-        "captureSources",
-        id: OfflineRepo.newId(),
-        payload: <String, Object?>{
-          "workspaceId": ws,
-          "kind": "url",
-          "content": "",
-          "url": text,
-          "state": "raw",
-        },
-      );
-    } else {
-      await repo.create(
-        "notes",
-        id: OfflineRepo.newId(),
-        payload: <String, Object?>{
-          "workspaceId": ws,
-          "title": "",
-          "content": text,
-          "kind": "note",
-          "lifecycleState": "raw",
-        },
-      );
-    }
-    _input.clear();
-    if (mounted) {
+    if (text.isEmpty || _saving) return;
+    setState(() {
+      _saving = true;
+      _saved = false;
+    });
+    try {
+      await ref.read(captureRepoProvider).post(
+            text: _detected == "url" ? null : text,
+            url: _detected == "url" ? text : null,
+          );
+      if (!mounted) return;
+      _input.clear();
       setState(() => _saved = true);
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Captured to Inbox")));
+    } on CaptureError catch (e) {
+      log('capture.error', name: 'capture', error: e.code);
+      if (!mounted) return;
+      // Honest failure: the capture did NOT land; say so and keep the input.
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
@@ -121,14 +107,19 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
           ),
           const SizedBox(height: 16),
           FilledButton.icon(
-            onPressed: _save,
-            icon: const Icon(Icons.save),
-            label: const Text("Capture"),
+            onPressed: _saving ? null : _save,
+            icon: _saving
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.save),
+            label: Text(_saving ? "Saving…" : "Capture"),
           ),
           if (_saved)
             const Padding(
               padding: EdgeInsets.only(top: 12),
-              child: Text("Saved. Will sync when online.",
+              child: Text("Saved to your Inbox.",
                   textAlign: TextAlign.center),
             ),
         ],

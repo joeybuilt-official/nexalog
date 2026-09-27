@@ -3,11 +3,18 @@ import "package:flutter/material.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 
 import "../../core/api/api_client.dart";
+import "../../core/api/surface_state.dart";
 import "../../core/providers.dart";
 
 /// Reader mode (web parity §5): sanitised reader text for a capture. GET
 /// /api/captures/:id/reader → {ok, state, html, text, paywalled, readMinutes}.
 /// Renders text (html stripped); shows extracting/failed states. Online.
+///
+/// A failure here is classified ([SurfaceError]) rather than stringified: the
+/// operator sees why, never a raw `Error: $e`. The classification is derived
+/// from the server's own response, so nothing about what a given deployment can
+/// serve is baked into this screen — reader text renders whenever the route
+/// answers.
 final readerProvider = FutureProvider.autoDispose
     .family<Map<String, Object?>, String>((Ref ref, String id) async {
   final ApiClient api = ref.watch(apiClientProvider);
@@ -18,7 +25,7 @@ final readerProvider = FutureProvider.autoDispose
         ? Map<String, Object?>.from(res.data as Map)
         : <String, Object?>{};
   } on DioException catch (e) {
-    return <String, Object?>{"ok": false, "state": "failed", "status": e.response?.statusCode};
+    throw SurfaceError.fromDio(e, surface: "Reader");
   }
 });
 
@@ -44,7 +51,10 @@ class ReaderScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text("Reader")),
       body: reader.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (Object e, _) => Center(child: Text("Error: $e")),
+        error: (Object e, _) => SurfaceUnavailablePanel(
+          error: SurfaceError.fromObject(e, surface: "Reader"),
+          onRetry: () => ref.invalidate(readerProvider(captureId)),
+        ),
         data: (Map<String, Object?> r) {
           final String state = r["state"]?.toString() ?? "";
           final String text = r["text"]?.toString() ??

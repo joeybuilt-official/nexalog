@@ -2,6 +2,7 @@ import "package:dio/dio.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 
 import "../../core/api/api_client.dart";
+import "../../core/api/surface_state.dart";
 import "../../core/providers.dart";
 import "../bookmarks/bookmarks_screen.dart";
 import "../notes/notes_providers.dart";
@@ -93,15 +94,41 @@ class SearchQuery {
 }
 
 class SearchOutcome {
-  SearchOutcome(this.results, this.totalsByKind, {this.offline = false});
+  SearchOutcome(
+    this.results,
+    this.totalsByKind, {
+    this.offline = false,
+    this.failure,
+  });
   final List<SearchResult> results;
   final Map<String, int> totalsByKind;
+
+  /// True when these results came from the local mirror because the device
+  /// could not reach the server. That is a legitimate answer, not a failure.
   final bool offline;
+
+  /// Set when the server REACHED and refused/unavailable — the operator must
+  /// see that, because an empty result list would otherwise read as "no
+  /// matches" when in fact nothing was searched.
+  final SurfaceError? failure;
 }
 
 /// ContentFinder backing search (web parity §6/§24). Online POST /api/search
-/// (lexical + semantic hybrid + facets); on failure falls back to filtering the
-/// local mirror so search still works offline.
+/// (lexical + semantic hybrid + facets).
+///
+/// Two failure modes, deliberately different:
+///   - **genuinely offline** (the request never landed) → fall back to filtering
+///     the local mirror, so search keeps working on a plane. Reported as
+///     `offline: true`.
+///   - **the server answered but the surface is unavailable / faulted** → do NOT
+///     degrade to the mirror as if that were an answer. The mirror is a stale
+///     partial copy; presenting its zero rows as "no matches" is exactly the
+///     silent-empty failure this classification exists to prevent. Carried as
+///     [SearchOutcome.failure] so the screen says so.
+///
+/// Nothing here assumes which of the two a given deployment produces: server
+/// results flow whenever the route answers, and the mirror only stands in for a
+/// request that never landed.
 class SearchRepo {
   SearchRepo(this._api, this._ref);
   final ApiClient _api;
@@ -139,8 +166,16 @@ class SearchRepo {
         });
       }
       return SearchOutcome(results, totals);
-    } on DioException {
-      return _offline(q);
+    } on DioException catch (e) {
+      final SurfaceError failure =
+          SurfaceError.fromDio(e, surface: "Search");
+      // Only a request that never landed justifies the mirror fallback.
+      if (failure.isOffline) return _offline(q);
+      return SearchOutcome(
+        const <SearchResult>[],
+        const <String, int>{},
+        failure: failure,
+      );
     }
   }
 
@@ -215,33 +250,8 @@ final searchProvider =
   return ref.watch(searchRepoProvider).run(q);
 });
 
-// Saved smart-views from /api/query-views (P4).
-class SavedView {
-  SavedView(this.raw);
-  final Map<String, Object?> raw;
-  String get id => raw["id"]?.toString() ?? "";
-  String get name => raw["name"]?.toString() ?? "";
-  String get query => raw["query"]?.toString() ?? "";
-}
-
-class SavedViewsRepo {
-  SavedViewsRepo(this._api);
-  final ApiClient _api;
-
-  Future<List<SavedView>> list() async {
-    try {
-      final Response<dynamic> res = await _api.get<dynamic>("/api/query-views");
-      final Map<String, Object?> body = res.data is Map
-          ? Map<String, Object?>.from(res.data as Map)
-          : <String, Object?>{};
-      final List<Object?> raw = (body["views"] as List<Object?>?) ?? const <Object?>[];
-      return raw.map((Object? e) => SavedView(Map<String, Object?>.from(e as Map))).toList();
-    } on DioException {
-      return const <SavedView>[];
-    }
-  }
-}
-
-final savedViewsProvider = FutureProvider<List<SavedView>>((Ref ref) {
-  return SavedViewsRepo(ref.watch(apiClientProvider)).list();
-});
+// NOTE: the saved smart-views rail was removed here. It read `/api/query-views`,
+// an endpoint this repo's web app does not implement at all — so no backend
+// configuration change can make it answer, and a repo that always returned `[]`
+// was dead code presenting itself as a feature. If smart views are ever built
+// server-side, the panel comes back with a real endpoint behind it.
