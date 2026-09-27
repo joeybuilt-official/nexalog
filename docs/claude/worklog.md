@@ -21,6 +21,42 @@ Append-only, never pruned. On ship: promote the durable entry to `completed-feat
 
 <!-- new lines below, newest first -->
 
+- 2026-09-27 · **Mobile v2 cutover (4/5): a dead surface now says it is dead instead of leaking an
+exception or lying with an empty list.** Three mobile screens call routes whose backing tables the
+deployed app-state database does not carry — the reader (`GET /api/captures/:id/reader`), the SM-2
+spaced-review queue (`GET|POST /api/review`) and search (`POST /api/search`). Each had a different
+dishonest failure mode: reader and review rendered `Text("Error: $e")`, dumping a raw `DioException`
+at the operator; review's `grade()` swallowed the failure in a bare `on DioException {}` and advanced
+the session anyway, so **an answer the server never received looked like a graded card**; search
+caught every failure and degraded to the local mirror, so a server-side outage rendered as "No
+matches" — and the review screen's load failure looked exactly like its real "All caught up!" empty
+state. New `mobile/lib/src/core/api/surface_state.dart` classifies a failure ONCE
+(`offline` / `unavailable` / `rejected` / `unexpected`) and derives the operator copy **from the
+server's own response** — it prefers the server's `message` verbatim, which is why the wording stays
+correct if a surface is repointed and revives: a working route simply stops producing these states and
+the screen renders data again with no client change. The classification matches the server's stable
+`error` code (`surface_unavailable`, from `apps/web/lib/db/surface-unavailable.ts`), never its prose,
+and treats a 404 (route absent from the deployed manifest) and any 5xx as unavailability rather than
+as an empty answer. **The offline/mirror distinction is now load-bearing in search:** only a request
+that NEVER LANDED falls back to the mirror (that is a legitimate answer, and the screen now carries an
+offline banner saying the results are device-local); a server that answered but could not serve does
+not, because the mirror is a stale partial copy of a different store and its zero rows are not a
+search result. `grade()` now throws and the session keeps the card on screen with the reason. The
+saved smart-views rail is removed: `/api/query-views` is absent from the deployed manifest **and does
+not exist in this repo's web app at all**, so unlike the v1 content routes no repoint can revive it —
+a repo that always returned `[]` was dead code presenting itself as a feature. Deliberately NOT
+touched: the v1 notes/journal/bookmarks-list/inbox screens and their router entries. Whether those
+surfaces are retired or repointed at the store that holds their tables is an open operator decision,
+and deleting them would be wrong under a repoint, so they stay. Step 4 of this cutover (removing those v1 screens, their router entries and nav items) was **cancelled, not deferred** — see the entry above.
+`mobile/test/unavailable_states_test.dart` asserts the classification (503 `surface_unavailable`,
+500, 404, a 4xx refusal, and a request that never landed) and pumps Reader / Review / Search against
+503 and 500, requiring the friendly panel, the server's own sentence, the status line, and NO
+`Error:`/`DioException` leak, no `No matches`, no `All caught up!`, and no thrown exception; a live
+200 search still renders its rows ·
+`mobile/lib/src/core/api/surface_state.dart`,
+`mobile/lib/src/features/{bookmarks/reader_screen,bookmarks/bookmarks_screen,review/review_providers,review/review_screen,search/search_providers,search/search_screen}.dart`,
+`mobile/test/unavailable_states_test.dart` · mobile v2 cutover
+
 - 2026-09-27 · **Mobile v2 cutover (3/5): Today reads the live inbox, and the mirrored notes section
 stays — empty, but honest.** The landing screen's only list was fed by the local notes mirror, which
 fills solely from the v1 sync delta; on the current deployment that delta has no tables behind it, so

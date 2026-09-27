@@ -6,13 +6,20 @@ import "package:flutter_riverpod/flutter_riverpod.dart";
 import "package:go_router/go_router.dart";
 import "package:url_launcher/url_launcher.dart";
 
+import "../../core/api/surface_state.dart";
 import "result_lenses.dart";
 import "search_providers.dart";
 
 /// Global search / ContentFinder (web parity §6/§24): hybrid semantic+lexical
 /// search via POST /api/search with sort + kind facet chips; offline falls back
-/// to the local mirror. Debounced input. Result-lens switcher renders the same
-/// rows as list / table / board / calendar (parity components/content-finder).
+/// to the local mirror and SAYS it is doing so. Debounced input. Result-lens
+/// switcher renders the same rows as list / table / board / calendar (parity
+/// components/content-finder).
+///
+/// A server-side failure is never rendered as zero results: an empty list reads
+/// as "nothing matched", which is a lie when nothing was searched. The repo
+/// classifies the failure and this screen renders [SurfaceUnavailablePanel] for
+/// it, and normal results whenever the route answers.
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key});
 
@@ -188,62 +195,61 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         Expanded(
           child: out.when(
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (Object e, _) => Center(child: Text("Error: $e")),
+            // A thrown failure is unexpected here (the repo classifies rather
+            // than throws), but never dump it raw.
+            error: (Object e, _) => SurfaceUnavailablePanel(
+              error: SurfaceError.fromObject(e, surface: "Search"),
+              onRetry: () => ref.invalidate(searchProvider(_q)),
+            ),
             data: (SearchOutcome o) {
-              if (_q.query.isEmpty && o.results.isEmpty) {
-                return _SavedViewsPanel(
-                  onSelect: (String q) =>
-                      setState(() => _q = _q.copyWith(query: q)),
+              // The server answered but the surface is not usable: say so
+              // instead of showing zero rows as if the search had run.
+              if (o.failure != null) {
+                return SurfaceUnavailablePanel(
+                  error: o.failure!,
+                  onRetry: () => ref.invalidate(searchProvider(_q)),
                 );
               }
-              if (o.results.isEmpty) {
-                return const Center(child: Text("No matches"));
+              if (_q.query.isEmpty && o.results.isEmpty) {
+                return const Center(child: Text("Type to search"));
               }
-              return _renderLens(o);
+              if (o.results.isEmpty) {
+                return Center(
+                  child: Text(o.offline
+                      ? "No matches in the notes saved on this device "
+                          "(offline)."
+                      : "No matches"),
+                );
+              }
+              return Column(
+                children: <Widget>[
+                  if (o.offline)
+                    Padding(
+                      key: const Key("search-offline-banner"),
+                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                      child: Row(
+                        children: <Widget>[
+                          Icon(Icons.cloud_off,
+                              size: 14,
+                              color: Theme.of(context).colorScheme.outline),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              "Offline — searching the notes saved on this device only.",
+                              style: TextStyle(
+                                  color: Theme.of(context).colorScheme.outline),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  Expanded(child: _renderLens(o)),
+                ],
+              );
             },
           ),
         ),
       ],
-    );
-  }
-}
-
-// Shows saved smart-views when the search query is empty (P4 parity).
-class _SavedViewsPanel extends ConsumerWidget {
-  const _SavedViewsPanel({required this.onSelect});
-  final ValueChanged<String> onSelect;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final AsyncValue<List<SavedView>> views = ref.watch(savedViewsProvider);
-    return views.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (_, __) => const Center(child: Text("Type to search")),
-      data: (List<SavedView> list) {
-        if (list.isEmpty) return const Center(child: Text("Type to search"));
-        return ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          children: <Widget>[
-            Text("Saved views",
-                style: Theme.of(context)
-                    .textTheme
-                    .labelSmall
-                    ?.copyWith(color: Theme.of(context).colorScheme.outline)),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: list
-                  .map((SavedView v) => ActionChip(
-                        label: Text(v.name),
-                        avatar: const Icon(Icons.bookmark_outline, size: 16),
-                        onPressed: () => onSelect(v.query),
-                      ))
-                  .toList(),
-            ),
-          ],
-        );
-      },
     );
   }
 }

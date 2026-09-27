@@ -5,6 +5,7 @@ import "package:flutter_riverpod/flutter_riverpod.dart";
 import "package:go_router/go_router.dart";
 import "package:url_launcher/url_launcher.dart";
 
+import "../../core/api/surface_state.dart";
 import "../../core/providers.dart";
 import "../search/search_providers.dart";
 
@@ -122,7 +123,9 @@ class _BookmarksMirrorList extends ConsumerWidget {
     final AsyncValue<List<Capture>> caps = ref.watch(bookmarksProvider);
     return caps.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (Object e, _) => Center(child: Text("Error: $e")),
+      error: (Object e, _) => SurfaceUnavailablePanel(
+          error: SurfaceError.fromObject(e, surface: "Bookmarks"),
+        ),
       data: (List<Capture> list) {
         if (list.isEmpty) return const Center(child: Text("No bookmarks yet"));
         return ListView.separated(
@@ -169,8 +172,13 @@ class _BookmarksSearchList extends ConsumerWidget {
     final AsyncValue<SearchOutcome> out = ref.watch(searchProvider(sq));
     return out.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (Object e, _) => Center(child: Text("Error: $e")),
+      error: (Object e, _) => SurfaceUnavailablePanel(
+          error: SurfaceError.fromObject(e, surface: "Bookmarks"),
+        ),
       data: (SearchOutcome o) {
+        if (o.failure != null) {
+          return SurfaceUnavailablePanel(error: o.failure!);
+        }
         if (o.results.isEmpty) return const Center(child: Text("No matches"));
         return ListView.separated(
           itemCount: o.results.length,

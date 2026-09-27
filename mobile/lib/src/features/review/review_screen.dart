@@ -1,10 +1,19 @@
 import "package:flutter/material.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 
+import "../../core/api/surface_state.dart";
 import "../../theme/knowledge_garden_tokens.dart";
 import "review_providers.dart";
 
 /// Spaced-review session (web parity §P7). One card at a time; 4 grade buttons.
+///
+/// Failure handling does not assume anything about what the backend can serve:
+/// a load failure that the server reports as unavailable renders the honest
+/// panel rather than the "All caught up!" empty state, because an unloadable
+/// queue and a finished one are different facts and must not look the same. An
+/// empty queue still reads "All caught up!", as it should. A grading failure
+/// keeps the card on screen and says why; the old code dropped the grade
+/// silently and advanced, losing the operator's answer.
 class ReviewScreen extends ConsumerStatefulWidget {
   const ReviewScreen({super.key});
 
@@ -15,14 +24,23 @@ class ReviewScreen extends ConsumerStatefulWidget {
 class _ReviewScreenState extends ConsumerState<ReviewScreen> {
   int _idx = 0;
   bool _grading = false;
+  String? _gradeError;
 
   Future<void> _grade(ReviewItem item, int grade) async {
     if (_grading) return;
-    setState(() => _grading = true);
+    setState(() {
+      _grading = true;
+      _gradeError = null;
+    });
     try {
       await ref.read(reviewRepoProvider).grade(item.captureId, grade);
+      // Only a confirmed save advances the session.
+      if (mounted) setState(() => _idx++);
+    } on SurfaceError catch (e) {
+      // The answer did NOT reach the server: keep the card, say why.
+      if (mounted) setState(() => _gradeError = "${e.headline} ${e.detail}");
     } finally {
-      if (mounted) setState(() { _grading = false; _idx++; });
+      if (mounted) setState(() => _grading = false);
     }
   }
 
@@ -34,7 +52,16 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
       appBar: AppBar(title: const Text("Spaced Review")),
       body: items.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (Object e, _) => Center(child: Text("Error: $e")),
+        error: (Object e, _) => SurfaceUnavailablePanel(
+          error: SurfaceError.fromObject(e, surface: "Spaced review"),
+          onRetry: () {
+            setState(() {
+              _idx = 0;
+              _gradeError = null;
+            });
+            ref.invalidate(reviewProvider);
+          },
+        ),
         data: (List<ReviewItem> list) {
           if (list.isEmpty || _idx >= list.length) {
             // `--t-person` is the garden's only green, and it belongs to the
@@ -75,6 +102,17 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
                 ),
                 const SizedBox(height: 12),
                 ReviewCard(item: item, onGrade: (int g) => _grade(item, g), disabled: _grading),
+                if (_gradeError != null) ...<Widget>[
+                  const SizedBox(height: 12),
+                  Text(
+                    _gradeError!,
+                    key: const Key("grade-error"),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
               ],
             ),
           );
