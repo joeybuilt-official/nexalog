@@ -21,6 +21,34 @@ Append-only, never pruned. On ship: promote the durable entry to `completed-feat
 
 <!-- new lines below, newest first -->
 
+- 2026-09-27 · **Mobile v2 cutover (5/5): the backend repoint landed mid-flight, so the mobile change
+is scoped to the defects that were real either way — and every comment that asserted a prod state was
+neutralized.** While this branch was in progress the operator chose to repoint the web app's
+`DATABASE_URL` at the database that actually holds the v1 content tables, which revived
+`/api/notes*`, `/api/journal*`, `/api/bookmarks*`, `/api/sync`, `/api/search`, `/api/review`,
+`/api/workspaces` and the reader route. That invalidated the premise of one planned step and part of
+another. **Cancelled outright:** removing the notes / journal / bookmarks-list / v1-inbox screens and
+their router + nav entries. That step was never committed — the branch carries **zero file deletions**
+— and under a repoint it would have deleted the surface holding the operator's real notes and
+bookmarks. **Kept, and now correct for the wrong-reason test:** the unavailable-state classification
+in `core/api/surface_state.dart` derives its copy from the server's OWN response, so a revived route
+simply stops producing those states and the screens render data with no client change; it is
+load-bearing for genuinely-absent endpoints (`/api/query-views`, `/api/ai/inline` are not implemented
+in this web app at all, so no configuration change can make them answer) and for real 5xx faults. The
+Today screen is **additive**: `Recent captures` was added above the mirrored `Recently saved` notes
+section, which is restored rather than replaced, because that mirror is what `/api/sync` now fills.
+What this commit also fixes is a documentation hazard rather than a behaviour one: nine comments across
+the touched files asserted a transient prod state as fact ("currently unavailable on the deployed
+backend", "the queue never drains", "so it currently fails", "the second case is what happens today"),
+and every one of those became false the moment the repoint shipped. Each is reworded to describe the
+CLIENT CONTRACT — which failure maps to which state, and why — so the comment stays true if the
+backend changes again. A comment that records a deployment fact is a comment with an expiry date; the
+classification behaviour does not expire. No behaviour changed in this commit. Version
+`1.0.28+28` → `1.0.29+29`. Full Dart suite run in the repo's Flutter image; the three repo gates and
+`scrub.py --dry-run` all clean · `docs/claude/worklog.md`, `mobile/pubspec.yaml`,
+`mobile/lib/src/{core/api/{capture_repo,surface_state}.dart,features/capture/{capture_screen,quick_capture_sheet}.dart,features/voice/voice_memo_upload.dart,features/today/today_screen.dart,features/review/{review_providers,review_screen}.dart,features/search/{search_providers,search_screen}.dart,features/bookmarks/reader_screen.dart}`,
+`mobile/test/{today_screen_test,unavailable_states_test}.dart` · mobile v2 cutover
+
 - 2026-09-27 · **Mobile v2 cutover (4/5): a dead surface now says it is dead instead of leaking an
 exception or lying with an empty list.** Three mobile screens call routes whose backing tables the
 deployed app-state database does not carry — the reader (`GET /api/captures/:id/reader`), the SM-2
