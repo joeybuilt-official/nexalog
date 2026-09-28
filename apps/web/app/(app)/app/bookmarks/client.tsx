@@ -18,6 +18,7 @@ import { useBookmarkDensity, DENSITY_SPEC } from "@/components/bookmarks/density
 import { DensityToggle } from "@/components/bookmarks/density-toggle";
 import { BookmarkCard } from "@/components/bookmarks/bookmark-list-card";
 import { cn } from "@/lib/utils";
+import { AddBookmarkForm } from "./add-bookmark-form";
 
 interface TagSummary {
   id: string;
@@ -333,6 +334,9 @@ export function BookmarksClient({
             {activeNode.label}
           </h1>
           <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{activeNode.count}</span>
+          <div className="ml-auto shrink-0">
+            <AddBookmarkForm />
+          </div>
         </div>
 
         <ContentFinder

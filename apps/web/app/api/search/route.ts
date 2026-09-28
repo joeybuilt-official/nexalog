@@ -11,11 +11,18 @@
  *     `ts_rank_cd`. The `fts` column is a stored generated tsvector with
  *     A/B/C/D weighting on og_title / og_description+summary / extracted_text
  *     / url (migration 0003). Falls back to ILIKE if the column isn't present
- *     (older schemas).
- *   - Semantic: Plexo `/api/v1/memory/search` returns ids + cosine scores from
- *     the 384-d embedding pipeline Alpha shipped. We join client-side by id.
- *   - Fusion: Reciprocal Rank Fusion (k=60). Falls back to lexical-only when
- *     Plexo is offline.
+ *     (older schemas). Notes carry their own `fts` (0013).
+ *   - Semantic: GBrain's MCP `search` + `query` tools (hybrid vector+keyword,
+ *     then concept/synonym expansion), deduped by slug. The brain index is
+ *     bound to the brain repo (`/brain/pages`), so its hits are pages — never
+ *     `capture_sources` rows.
+ *   - Fusion: Reciprocal Rank Fusion (k=60) over ALL THREE lists — brain
+ *     pages (semantic), saved links (lexical) and notes (lexical) — so a
+ *     bookmark body and a brain page answer the same query in one ranked
+ *     list. GBrain having hits must never *replace* the bookmark/note
+ *     branches; it adds to them. A GBrain transport/auth failure (or an
+ *     unconfigured client) degrades to lexical-only and reports
+ *     `rankingMode: "lexical"`.
  *
  * AI-assist suggestion rail (3 forms):
  *   1. Spell/typo — query has zero results -> propose corrections via Plexo
@@ -322,9 +329,17 @@ export async function POST(request: Request) {
   // GBrain owns index/embeddings/graph; Nexalog only calls its MCP. On any
   // transport/auth failure — or an empty result set — we degrade to the
   // fs-frontmatter scan (brainIndex) and then the lexical pipeline below.
+  //
+  // FUSION, NEVER SUBSTITUTION. This branch used to `return` as soon as GBrain
+  // had a single hit, which made the two corpora mutually exclusive per query:
+  // GBrain's index is bound to the brain repo (`/brain/pages`) and can never
+  // contain a `capture_sources` row, so answering with brain pages *replaced*
+  // every bookmark and note instead of ranking alongside them. Brain hits are
+  // now carried into the RRF fusion below as the semantic list.
+  const gbrainRows: SearchResult[] = [];
+  const gbrainRankById = new Map<string, number>();
   if (query && getComposition().gbrain) {
     const gbrain = getComposition().gbrain!;
-    const gbrainHits: SearchResult[] = [];
     try {
       const bySlug = new Map<string, { slug: string; title: string; type: string; chunkText: string; effectiveDate: string | null }>();
       const cheap = await gbrain.search(query, { limit: Math.min(limit, 50) });
@@ -333,7 +348,7 @@ export async function POST(request: Request) {
       for (const h of expanded) if (!bySlug.has(h.slug)) bySlug.set(h.slug, h);
 
       for (const h of bySlug.values()) {
-        gbrainHits.push({
+        gbrainRows.push({
           id: h.slug,
           kind: gbrainTypeToKind(h.type),
           title: h.title || h.slug,
@@ -354,57 +369,47 @@ export async function POST(request: Request) {
           score: 1,
           snippet: makeSnippet(h.chunkText, query),
         });
+        // Deduped-by-slug insertion order IS the semantic rank (1-based).
+        gbrainRankById.set(h.slug, gbrainRankById.size + 1);
       }
     } catch (e) {
       logEvent("search.gbrain.error", { error: String(e) });
     }
 
-    if (gbrainHits.length > 0) {
-      return Response.json({
-        results: gbrainHits.slice(0, limit),
-        facets: { totalsByKind: {}, totalsByRegion: {}, totalsByAge: {} },
-        suggestions: [],
-        total: gbrainHits.length,
-        rankingMode: "hybrid" as const,
-      } satisfies SearchResponse);
-    }
-
-    // GBrain returned nothing — try the fs-frontmatter scan (NullIndex).
-    try {
-      const brainIndex = getComposition().brainIndex;
-      const fsHits = await brainIndex.search(query, { limit: Math.min(limit, 50) });
-      if (fsHits.length > 0) {
-        const results = fsHits.map((h) => ({
-          id: h.slug,
-          kind: "note" as const,
-          title: h.title,
-          url: null,
-          themeLabel: null,
-          themeRegion: null,
-          themeId: null,
-          openedAt: null,
-          evergreen: null,
-          paywalled: null,
-          readMinutes: null,
-          watchMinutes: null,
-          summary: h.snippet.slice(0, 280),
-          ogImage: null,
-          faviconUrl: null,
-          urlHost: null,
-          createdAt: new Date().toISOString(),
-          score: 0,
-          snippet: h.snippet,
-        }));
-        return Response.json({
-          results: results.slice(0, limit),
-          facets: { totalsByKind: {}, totalsByRegion: {}, totalsByAge: {} },
-          suggestions: [],
-          total: results.length,
-          rankingMode: "recency" as const,
-        } satisfies SearchResponse);
+    // GBrain returned nothing — try the fs-frontmatter scan (NullIndex) as a
+    // second semantic source. Only reached when GBrain itself produced no
+    // hits, so a working GBrain still short-circuits the (slower) disk scan.
+    if (gbrainRows.length === 0) {
+      try {
+        const brainIndex = getComposition().brainIndex;
+        const fsHits = await brainIndex.search(query, { limit: Math.min(limit, 50) });
+        for (const h of fsHits) {
+          gbrainRows.push({
+            id: h.slug,
+            kind: "note" as const,
+            title: h.title,
+            url: null,
+            themeLabel: null,
+            themeRegion: null,
+            themeId: null,
+            openedAt: null,
+            evergreen: null,
+            paywalled: null,
+            readMinutes: null,
+            watchMinutes: null,
+            summary: h.snippet.slice(0, 280),
+            ogImage: null,
+            faviconUrl: null,
+            urlHost: null,
+            createdAt: new Date().toISOString(),
+            score: 0,
+            snippet: h.snippet,
+          });
+          gbrainRankById.set(h.slug, gbrainRankById.size + 1);
+        }
+      } catch {
+        // fall through to the lexical pipeline
       }
-    } catch {
-      // fall through to the lexical pipeline
     }
   }
 
@@ -599,8 +604,17 @@ export async function POST(request: Request) {
   }
 
   // ── Hybrid scoring (RRF) ──────────────────────────────────────────────────
-  const rankingMode: SearchResponse["rankingMode"] = query ? "lexical" : "recency";
-  const merged: SearchResult[] = [...captureRows, ...noteRows];
+  // Three ranked lists now fuse into ONE answer: brain pages (semantic, from
+  // GBrain / the fs scan), saved links (`capture_sources.fts`, lexical) and
+  // imported notes (`notes.fts`, lexical). "hybrid" is reported whenever a
+  // semantic list participated; a GBrain outage falls back to lexical-only and
+  // says so.
+  const rankingMode: SearchResponse["rankingMode"] = !query
+    ? "recency"
+    : gbrainRankById.size > 0
+      ? "hybrid"
+      : "lexical";
+  const merged: SearchResult[] = [...captureRows, ...noteRows, ...gbrainRows];
 
   // ── Semantic branch (pgvector, Path B) ─────────────────────────────────────
   // Embed the query and pull HNSW cosine-nearest captures + notes. Rows that
@@ -646,7 +660,10 @@ export async function POST(request: Request) {
         .map(([id]) => id);
       lexScored.forEach((id, i) => lexRank.set(id, i + 1));
     } else {
-      const lexScored = merged
+      // JS-side lexical fallback — over the LEXICAL rows only. Brain hits are
+      // already ranked by `semRank` and must not be scored twice (or be the
+      // only reason a query looks lexical).
+      const lexScored = [...captureRows, ...noteRows]
         .map((r) => {
           const haystack = `${r.title} ${r.snippet ?? ""} ${r.url ?? ""}`.toLowerCase();
           const q = query.toLowerCase();
@@ -660,8 +677,10 @@ export async function POST(request: Request) {
       lexScored.forEach((x, i) => lexRank.set(x.id, i + 1));
     }
 
-    // semantic rank — now via BrainIndex (Phase 2); lexical-only for now
-    const semRank: Map<string, number> | null = new Map<string, number>();
+    // Semantic rank — the brain list from GBrain / the fs scan (slug-keyed,
+    // insertion order = rank). Empty when GBrain is unconfigured or failed,
+    // which is exactly the old lexical-only behaviour.
+    const semRank: Map<string, number> | null = gbrainRankById;
 
     for (const r of merged) {
       const lr = lexRank.get(r.id);

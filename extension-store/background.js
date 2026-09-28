@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Nexalog Bookmarks — service worker.
-// Saving is thin: POST the URL to /api/capture with the user's session
-// cookie. Nexalog classifies it server-side (video / article / reference /
-// social / other) and routes it to the right place. We never decide here.
+// Two save paths, both carrying the user's session cookie:
+//   * a URL save POSTs JSON {url} to /api/bookmarks — a saved link IS a
+//     bookmark, and that route is the one that parses JSON;
+//   * a text/highlight save POSTs multipart FormData to /api/capture — the
+//     note intake, which reads form fields, not a JSON body.
+// Nexalog classifies server-side (video / article / reference / social /
+// other) and routes it to the right place. We never decide here.
 
 const BASE = "https://nexalog.com";
 
@@ -25,17 +29,19 @@ function hopperLabel(kind) {
   }
 }
 
-// POST one URL to Nexalog. Returns a normalized result the popup and the
-// context-menu path both understand.
+// POST one URL to the bookmark front door as JSON. Returns a normalized result
+// the popup and the context-menu path both understand.
+// POST /api/bookmarks: 201 {ok, duplicate:false, bookmark} on a save,
+// 200 {ok, duplicate:true, bookmark} when the link was already there.
 async function saveBookmark(url) {
   const base = BASE;
   let res;
   try {
-    res = await fetch(`${base}/api/capture`, {
+    res = await fetch(`${base}/api/bookmarks`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind: "url", content: url }),
+      body: JSON.stringify({ url }),
     });
   } catch (e) {
     return { ok: false, error: "network", base };
@@ -47,26 +53,39 @@ async function saveBookmark(url) {
   let data = {};
   try { data = await res.json(); } catch { /* ignore */ }
 
-  const captureId = data?.capture?.id ?? data?.captureId ?? null;
+  // The bookmark row is the response's `bookmark`; its id is the capture id
+  // every Nexalog surface links by, and it is present for a duplicate too.
+  const bookmark = data?.bookmark ?? null;
+  const captureId = bookmark?.id ?? null;
 
   if (data.duplicate) return { ok: true, duplicate: true, captureId, base };
 
-  const kind = data?.capture?.kindClassified ?? null;
+  const kind = bookmark?.kindClassified ?? null;
   return { ok: true, kind, label: hopperLabel(kind), captureId, base };
 }
 
 // Save selected text as a Nexalog note, tagged with its source page.
+// /api/capture parses multipart form data, so the body is a real FormData and
+// NO Content-Type is set by hand: a hand-written header omits the multipart
+// boundary, and the route's `formData()` throws on it.
 async function saveHighlight(text, sourceUrl) {
   const content = sourceUrl ? `${text}\n\nSource: ${sourceUrl}` : text;
+  const form = new FormData();
+  form.append("text", content);
+  form.append("source", "bookmarklet");
   try {
     const res = await fetch(`${BASE}/api/capture`, {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind: "text", content }),
+      body: form,
     });
     if (isAuthFailure(res)) return { ok: false, error: "auth" };
-    return { ok: res.ok, status: res.status };
+    if (!res.ok) return { ok: false, error: "server", status: res.status };
+
+    let data = {};
+    try { data = await res.json(); } catch { /* ignore */ }
+
+    return { ok: true, captureId: data?.captureId ?? null, status: res.status };
   } catch {
     return { ok: false, error: "network" };
   }
@@ -147,120 +166,9 @@ chrome.commands.onCommand.addListener(async (command) => {
   saveAndAnnounce(tab?.url);
 });
 
-// ---- Web history capture (gated, batched, lightweight) ----
-const FLUSH_ALARM = "nexalog-history-flush";
-const BUF_KEY = "histBuffer";
-
-async function histSettings() {
-  const { histEnabled = false, histDenylist = [] } =
-    await chrome.storage.local.get(["histEnabled", "histDenylist"]);
-  return { histEnabled, histDenylist };
-}
-function histDenied(host, denylist) {
-  if (!host) return false;
-  return denylist.some((d) => {
-    const x = String(d).trim().toLowerCase();
-    return x && (host === x || host.endsWith(`.${x}`));
-  });
-}
-async function bufferVisit(url, title) {
-  if (!url || !/^https?:\/\//i.test(url)) return;
-  const { histEnabled, histDenylist } = await histSettings();
-  if (!histEnabled) return;
-  let host = null;
-  try { host = new URL(url).hostname.toLowerCase(); } catch { /* skip */ }
-  if (histDenied(host, histDenylist)) return;
-  const { [BUF_KEY]: buf = [] } = await chrome.storage.local.get(BUF_KEY);
-  buf.push({ url, title: title || null, visitedAt: new Date().toISOString() });
-  await chrome.storage.local.set({ [BUF_KEY]: buf.slice(-500) });
-}
-async function flushHistory() {
-  const { [BUF_KEY]: buf = [] } = await chrome.storage.local.get(BUF_KEY);
-  if (!buf.length) return;
-  try {
-    const res = await fetch(`${BASE}/api/history`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ visits: buf.slice(0, 200) }),
-    });
-    if (res.ok) await chrome.storage.local.set({ [BUF_KEY]: buf.slice(200) });
-  } catch { /* keep buffer, retry next alarm */ }
-}
-if (chrome.webNavigation) {
-  chrome.webNavigation.onCompleted.addListener(async (d) => {
-    if (d.frameId !== 0) return;
-    let title;
-    try { title = (await chrome.tabs.get(d.tabId))?.title; } catch { /* ignore */ }
-    bufferVisit(d.url, title);
-  });
-}
-if (chrome.alarms) {
-  chrome.alarms.create(FLUSH_ALARM, { periodInMinutes: 0.5 });
-  chrome.alarms.onAlarm.addListener((a) => { if (a.name === FLUSH_ALARM) flushHistory(); });
-}
-
-// ---- Already-saved toolbar badge ----
-async function updateSavedBadge(tabId, url) {
-  if (!url || !/^https?:\/\//i.test(url)) {
-    chrome.action.setBadgeText({ tabId, text: "" });
-    return;
-  }
-  try {
-    const res = await fetch(`${BASE}/api/history/exists?url=${encodeURIComponent(url)}`, {
-      credentials: "include",
-    });
-    if (!res.ok) return;
-    const { saved } = await res.json();
-    chrome.action.setBadgeBackgroundColor({ tabId, color: "#16a34a" });
-    chrome.action.setBadgeText({ tabId, text: saved ? "✓" : "" });
-  } catch { /* ignore */ }
-}
-chrome.tabs.onActivated.addListener(async ({ tabId }) => {
-  try { updateSavedBadge(tabId, (await chrome.tabs.get(tabId))?.url); } catch { /* ignore */ }
-});
-chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
-  if (info.status === "complete") updateSavedBadge(tabId, tab?.url);
-});
-
-// ---- One-time back-catalog import (user-initiated, needs optional history perm) ----
-async function importHistory() {
-  if (!chrome.history) return { ok: false, error: "no-permission" };
-  const items = await chrome.history.search({ text: "", maxResults: 100000, startTime: 0 });
-  let imported = 0;
-  for (let i = 0; i < items.length; i += 200) {
-    const visits = items.slice(i, i + 200).map((h) => ({
-      url: h.url,
-      title: h.title || null,
-      visitedAt: h.lastVisitTime ? new Date(h.lastVisitTime).toISOString() : undefined,
-    }));
-    try {
-      const res = await fetch(`${BASE}/api/history`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ visits }),
-      });
-      if (res.ok) imported += (await res.json()).ingested || 0;
-    } catch { /* continue */ }
-  }
-  return { ok: true, imported };
-}
-
-// Messages from popup + options.
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === "save") {
     saveBookmark(msg.url).then(sendResponse);
-    return true;
-  }
-  if (msg?.type === "importHistory") {
-    importHistory().then(sendResponse);
-    return true;
-  }
-  if (msg?.type === "setHistory") {
-    chrome.storage.local
-      .set({ histEnabled: !!msg.enabled, histDenylist: msg.denylist || [] })
-      .then(() => sendResponse({ ok: true }));
     return true;
   }
 });

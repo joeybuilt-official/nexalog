@@ -87,7 +87,12 @@ async function drainQueue(): Promise<void> {
 
  sw.addEventListener("fetch", (event: FetchEvent) => {
   const url = new URL(event.request.url);
-  if (event.request.method === "POST" && url.pathname === "/api/capture") {
+  // Both write paths queue offline: the multipart capture intake AND the JSON
+  // bookmark route (a saved link is a bookmark, not a note).
+  const isWrite =
+    event.request.method === "POST" &&
+    (url.pathname === "/api/capture" || url.pathname === "/api/bookmarks");
+  if (isWrite) {
     event.respondWith(
       fetch(event.request.clone()).catch(async () => {
         await enqueue(event.request);
