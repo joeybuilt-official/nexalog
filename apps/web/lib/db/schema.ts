@@ -586,14 +586,20 @@ export const projects = nexalogSchema.table(
   ]
 );
 
-// Grouping by reference. itemKind: 'note' | 'bookmark' | 'journal'. No FK on
+// Grouping by reference. itemKind: see `ProjectItemKind` below. No FK on
 // item_id (polymorphic) — ownership enforced in the validated link path.
+// `item_kind = 'project'` means the reference target is another PROJECT row:
+// that is how sub-projects are expressed (ADR-0018 reference-based containers;
+// the nesting policy — one parent, two levels — lives in `@/lib/projects/domain`
+// and is enforced in the write path, never by a CHECK constraint).
+export type ProjectItemKind = "note" | "bookmark" | "journal" | "project";
+
 export const projectItems = nexalogSchema.table(
   "project_items",
   {
     id: uuid("id").defaultRandom().primaryKey(),
     projectId: uuid("project_id").notNull(),
-    itemKind: text("item_kind").notNull(),
+    itemKind: text("item_kind").$type<ProjectItemKind>().notNull(),
     itemId: uuid("item_id").notNull(),
     addedAt: timestamp("added_at", { withTimezone: true }).defaultNow().notNull(),
   },

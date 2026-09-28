@@ -15,6 +15,7 @@ import {
   Notebook,
   RotateCcw,
   Boxes,
+  FolderKanban,
   type LucideIcon,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -29,9 +30,11 @@ type NavGroup = { id: string; label: string; items: NavItem[] };
 
 // Intent-based groups. Order matches the typical session: arrive (Today)
 // -> produce (Library) -> browse the brain (Garden) -> tweak (Workspace).
-// NOTE: v2 §1.7 deleted the queue/chat/ideas/projects/watch/reading/reference/
+// NOTE: v2 §1.7 deleted the queue/chat/ideas/watch/reading/reference/
 // import/web-history/objects/dashboard routes — keep this list in sync with the
-// routes that actually exist under apps/web/app/(app)/app/.
+// routes that actually exist under apps/web/app/(app)/app/. Projects was in that
+// deletion set and has since been rebuilt as a real surface under
+// app/(app)/app/projects/, so it belongs here again.
 const navGroups: NavGroup[] = [
   {
     id: "today",
@@ -49,6 +52,7 @@ const navGroups: NavGroup[] = [
     items: [
       { href: "/app/notes", label: "Notes", icon: FileText },
       { href: "/app/bookmarks", label: "Bookmarks", icon: Bookmark },
+      { href: "/app/projects", label: "Projects", icon: FolderKanban },
       { href: "/app/search", label: "Search", icon: Search },
     ],
   },
