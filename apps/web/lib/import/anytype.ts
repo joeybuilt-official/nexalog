@@ -415,7 +415,8 @@ const PUBLIC_SUFFIXES = [
  * FILENAME and the filename can end up embedded in a longer title, so allowing `-` in the local
  * part would let the match swallow a leading word (`re-<address>` → one token hashed over `re-…`).
  * Excluding it keeps the token a function of the address alone, and the local part stays greedy so
- * the engine binds the LAST `at` — the right one for `natalieatgmail-com`.
+ * the engine binds the LAST `at` — the right one for an address whose local part itself
+ * contains `at`.
  */
 const EMAIL_COLLAPSED_RE = new RegExp(
   `\\b[a-z0-9][a-z0-9._%+]{0,63}at[a-z0-9][a-z0-9-]{0,62}-(?:${PUBLIC_SUFFIXES.join("|")})\\b`,
