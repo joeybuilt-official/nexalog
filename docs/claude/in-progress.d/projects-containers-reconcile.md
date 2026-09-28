@@ -85,3 +85,43 @@ now agrees with the body, and the disagreement is recorded (A1.10 Finding 1). A1
 the ADR-0001↔ADR-0018 supersession and carries A1 into the brain-page placement as
 `parent: projects/<slug>` + `parent_slug`. **Nothing shipped: docs only — no code, no migration file,
 no DB command, no deploy.**
+
+---
+
+## 2026-09-28 — the vertical slice shipped; Phase 5 still gated
+
+The surface exists. `/api/projects` (list/create), `/api/projects/[id]` (detail/patch/delete) and
+`/api/projects/[id]/items` (add/detach a reference) plus `app/(app)/app/projects/{page,[id]/page}.tsx`
+and a Library-group nav entry in `apps/web/components/app-sidebar.tsx` +
+`apps/web/components/mobile-bottom-nav.tsx`. Every route resolves the caller's workspaces first and
+scopes its query to them, so another workspace's project id is a 404.
+
+**Sub-projects landed on the reference container, not on a `parent_id` column.** A sub-project is a
+`project_items` row with `item_kind='project'` whose `item_id` is the CHILD project's id — the same
+mechanism the item layer already used, so the item-kind check widening is the ONE schema change
+(`apps/web/drizzle/0028_project_items_kind_project.sql`, additive + idempotent, **for the record
+only**: the operator applies it by hand, and this tree never runs `db:push`/`db:migrate`/`db:generate`
+against the shared database). A1.6's `parent_id` + self-FK DDL is therefore **not** part of this slice
+— the edge is a row in `project_items`, and the `projects` table was not altered.
+
+**The nesting policy is the domain's, and only the domain's.** `MAX_PROJECT_DEPTH = 2` plus
+`assertNestable` / `nestingViolation` in `apps/web/lib/projects/domain.ts` encode the two container
+rules (one parent per project; a sub-project may not itself have a sub-project, and a parent must be a
+root), and `addItemToProject` is the single write path that calls the guard. A refusal throws a coded
+`ProjectNestingError` (`self_nesting` / `already_has_parent` / `child_is_parent` / `parent_is_child`)
+which the route maps to a 400 `invalid_nesting` — clients branch on the code, never on the message.
+Two ordering facts worth keeping: **ownership is checked before the guard**, so a refusal can never
+disclose the shape of a project the caller cannot see (a test asserts the structural queries are not
+issued at all); and nothing is written when the guard refuses (also asserted).
+
+**Where the UI states the limit:** the detail page's Sub-projects panel says "projects nest 2 levels
+deep" in place of an add control when the project is itself a sub-project, because a rule the user
+cannot see reads as a bug when it fires.
+
+**Cycle prevention falls out of the two rules** rather than needing A1.2's `WITH RECURSIVE` ancestor
+walk: every shape a cycle requires is a child that already has a parent, or a parent that is itself a
+child — both rejected by construction. If depth is ever raised, that walk comes back with it.
+
+**Still gated (unchanged):** Phase 5 — the push target, the deploy, and any prod migration. This
+change creates no project rows and runs no DDL; it makes the surface, the routes, and the policy real
+against tables that already exist in prod.
