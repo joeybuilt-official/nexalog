@@ -3,7 +3,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Sun, FileText, Bookmark, Zap, Search, type LucideIcon } from "lucide-react";
+import { Sun, FileText, Bookmark, Zap, Search, FolderKanban, type LucideIcon } from "lucide-react";
 import { useModals } from "@/components/modal-context";
 
 type LinkItem = { kind: "link"; href: string; label: string; icon: LucideIcon };
@@ -15,6 +15,7 @@ const ITEMS: Item[] = [
   { kind: "link", href: "/app/notes", label: "Notes", icon: FileText },
   { kind: "action", id: "capture", label: "Capture", icon: Zap },
   { kind: "link", href: "/app/bookmarks", label: "Bookmarks", icon: Bookmark },
+  { kind: "link", href: "/app/projects", label: "Projects", icon: FolderKanban },
   { kind: "action", id: "search", label: "Search", icon: Search },
 ];
 
