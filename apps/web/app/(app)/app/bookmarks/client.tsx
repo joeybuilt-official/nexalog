@@ -225,17 +225,21 @@ export function BookmarksClient({
     });
   }
 
-  // Render a single result. Notes fall through to the ContentFinder
-  // default note row (we only override url-kind here).
+  // Render a single result. This surface overrides the card for BOOKMARK rows
+  // only; anything else DECLINES (returns nothing) and `renderResult` falls
+  // back to the default card — a real note gets the note row, and a brain page
+  // of gbrain type `note` (which arrives with kind "note" too, but the server
+  // routes it to /app/brain/<slug>) gets the href-aware default instead of
+  // being blanked by a kind check.
   const renderItem = (r: SearchResult) =>
-    r.kind === "note" ? null : (
+    r.href?.startsWith("/app/bookmarks/") ? (
       <BookmarkCard
         result={r}
         density={density}
         selected={selectedIds.has(r.id)}
         onToggleSelect={toggleSelected}
       />
-    );
+    ) : null;
 
   // Layout note (Apr 2026 redesign): we ride the AppShell's <main>
   // overflow-y-auto. No `h-full`, no inner overflow viewports. The

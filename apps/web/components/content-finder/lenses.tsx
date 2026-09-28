@@ -8,14 +8,18 @@
  * ADR-0004-gated). Every lens consumes `SearchResult[]` and degrades to a
  * plain empty state when there's nothing to show.
  *
- * Item linking is uniform: notes → /app/notes/{id}, captures → their URL
- * (new tab), mirroring the citation-chip behaviour elsewhere.
+ * Item linking is uniform and comes from ONE place: the server's `href` when
+ * the row carries one (`resolveResultHref`), else the row's own URL. Brain
+ * pages are addressed by slug, so a slug-keyed row must never be sent to a
+ * uuid route — that was the 404 this replaces. A row with neither an in-app
+ * page nor a URL renders as plain text.
  */
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, ExternalLink, FileText } from "lucide-react";
 import type { SearchResult } from "./types";
+import { resolveResultHref } from "@/lib/search/result-href";
 
 // ── shared helpers ──────────────────────────────────────────────────────────
 
@@ -38,7 +42,20 @@ function timeLabel(r: SearchResult): string {
   return "—";
 }
 
-/** Note → internal Link; capture → external anchor. Shared by all lenses. */
+/**
+ * The route for a row, or its external URL as a fallback. `null` = render as
+ * plain text: linking to a route that does not exist is worse than no link.
+ */
+type ItemTarget = { kind: "internal"; href: string } | { kind: "external"; href: string };
+
+function targetFor(r: SearchResult): ItemTarget | null {
+  const href = resolveResultHref(r);
+  if (href) return { kind: "internal", href };
+  if (r.url) return { kind: "external", href: r.url };
+  return null;
+}
+
+/** Internal rows navigate in-app; rows with only a URL open where they point. */
 function ItemLink({
   r,
   className,
@@ -50,16 +67,17 @@ function ItemLink({
   title?: string;
   children: React.ReactNode;
 }) {
-  if (r.kind === "note") {
+  const target = targetFor(r);
+  if (target?.kind === "internal") {
     return (
-      <Link href={`/app/notes/${r.id}`} className={className} title={title}>
+      <Link href={target.href} className={className} title={title}>
         {children}
       </Link>
     );
   }
-  if (r.url) {
+  if (target?.kind === "external") {
     return (
-      <a href={r.url} target="_blank" rel="noopener noreferrer" className={className} title={title}>
+      <a href={target.href} target="_blank" rel="noopener noreferrer" className={className} title={title}>
         {children}
       </a>
     );

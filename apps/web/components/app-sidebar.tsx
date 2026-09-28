@@ -16,6 +16,7 @@ import {
   RotateCcw,
   Boxes,
   FolderKanban,
+  Library,
   type LucideIcon,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -59,7 +60,10 @@ const navGroups: NavGroup[] = [
   {
     id: "brain",
     label: "Brain",
-    items: [{ href: "/app/graph", label: "Garden", icon: GitFork }],
+    items: [
+      { href: "/app/brain", label: "Pages", icon: Library },
+      { href: "/app/graph", label: "Garden", icon: GitFork },
+    ],
   },
   {
     id: "workspace",

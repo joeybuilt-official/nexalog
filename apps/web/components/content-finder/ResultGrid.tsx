@@ -28,6 +28,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { CaptureCard, type CaptureCardData } from "@/components/bookmarks/capture-card";
+import { resolveResultHref } from "@/lib/search/result-href";
 import type { SearchResult } from "./types";
 
 /** Which date field to segment by — must mirror the active sort. */
@@ -110,8 +111,15 @@ function buildDateGroups(results: SearchResult[], field: GroupByField): DateGrou
   return groups;
 }
 
+/**
+ * One result's card. A host's `renderItem` override may DECLINE a row by
+ * returning nothing (the bookmarks surface does exactly that for rows that are
+ * not bookmarks) — declining means "use the default card", not "render an
+ * empty slot", which is what a bare `{renderItem(r)}` would do.
+ */
 function renderResult(r: SearchResult, renderItem?: (r: SearchResult) => React.ReactNode) {
-  if (renderItem) return <div key={`${r.kind}:${r.id}`}>{renderItem(r)}</div>;
+  const custom = renderItem ? renderItem(r) : null;
+  if (custom) return <div key={`${r.kind}:${r.id}`}>{custom}</div>;
   return r.kind === "note" ? (
     <NoteRow key={`note:${r.id}`} row={r} />
   ) : (
@@ -400,6 +408,9 @@ function gridColsCls(cols: { sm: number; md: number; lg: number; xl: number }): 
 function searchResultToCaptureCardData(r: SearchResult): CaptureCardData {
   return {
     id: r.id,
+    // Brain hits carry a slug id and a server-decided route; captures carry a
+    // uuid and no href (their reader route is the id-derived fallback).
+    href: r.href ?? null,
     url: r.url,
     ogTitle: r.title,
     urlHost: r.urlHost,
@@ -415,11 +426,12 @@ function searchResultToCaptureCardData(r: SearchResult): CaptureCardData {
 }
 
 function NoteRow({ row }: { row: SearchResult }) {
-  return (
-    <Link
-      href={`/app/notes/${row.id}`}
-      className="block rounded-lg border border-border bg-card p-4 transition-colors hover:border-foreground/20"
-    >
+  // The server decides where a row points. A brain page reached through the
+  // fs fallback is ALSO kind: "note" but its id is a slug — hardcoding
+  // /app/notes/<id> here sent it to a route that could never resolve.
+  const href = resolveResultHref(row);
+  const body = (
+    <>
       <div className="flex items-center gap-2">
         <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
           note
@@ -437,6 +449,20 @@ function NoteRow({ row }: { row: SearchResult }) {
       {row.snippet && (
         <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{row.snippet}</p>
       )}
-    </Link>
+    </>
   );
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className="block rounded-lg border border-border bg-card p-4 transition-colors hover:border-foreground/20"
+      >
+        {body}
+      </Link>
+    );
+  }
+  // No addressable page (a row with no id route) — render the same card
+  // without claiming it can be opened.
+  return <div className="rounded-lg border border-border bg-card p-4">{body}</div>;
 }

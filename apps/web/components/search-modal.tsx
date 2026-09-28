@@ -15,6 +15,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useModals } from "@/components/modal-context";
+import { resolveResultHref } from "@/lib/search/result-href";
 
 type ResultKind =
   | "note"
@@ -29,6 +30,8 @@ interface SearchResult {
   id: string;
   kind: ResultKind;
   title: string;
+  /** Server-decided route (see /api/search — a brain hit's id is a slug). */
+  href?: string | null;
   url: string | null;
   summary: string | null;
   urlHost: string | null;
@@ -43,7 +46,7 @@ interface ThemeHit {
 // Flat, keyboard-navigable item — actions first, then themes, then results.
 type Item =
   | { type: "theme"; href: string; label: string; sub: string }
-  | { type: "result"; href: string; label: string; sub: string; kind: ResultKind }
+  | { type: "result"; href: string | null; url: string | null; label: string; sub: string; kind: ResultKind }
   | {
       type: "action";
       id: string;
@@ -53,10 +56,16 @@ type Item =
       run: () => Promise<void> | void;
     };
 
-function resultHref(r: SearchResult): string {
-  return r.kind === "note"
-    ? `/app/notes/${r.id}`
-    : `/app/bookmarks/${r.id}/reader`;
+/**
+ * Where a result row points: the SERVER's `href` when it supplied one, else a
+ * note's own route. A brain hit arrives with `/app/brain/<slug>` — this
+ * function used to map every non-note row onto the bookmark reader route,
+ * which turned each brain hit into a 404. `null` means the row has no in-app
+ * page: the caller opens `r.url` instead of linking somewhere that will not
+ * resolve.
+ */
+function resultHref(r: SearchResult): string | null {
+  return resolveResultHref(r);
 }
 
 // Search the query against a short label. Substring + lowercased.
@@ -193,6 +202,7 @@ export function SearchModal() {
           const resultItems: Item[] = (data.results ?? []).map((r) => ({
             type: "result",
             href: resultHref(r),
+            url: r.url,
             label:
               r.title ||
               (r.kind === "note" ? "Untitled note" : r.urlHost || "Untitled"),
@@ -235,8 +245,14 @@ export function SearchModal() {
     setOpen(false);
     if (item.type === "action") {
       await item.run();
-    } else {
+    } else if (item.type === "theme") {
       router.push(item.href);
+    } else if (item.href) {
+      router.push(item.href);
+    } else if (item.url) {
+      // No in-app page for this row — open the thing itself rather than
+      // pushing a route that would 404.
+      window.open(item.url, "_blank", "noopener,noreferrer");
     }
   }
 

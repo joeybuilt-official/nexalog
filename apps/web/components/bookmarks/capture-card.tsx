@@ -5,10 +5,18 @@
 import Link from "next/link";
 import { Clock, ExternalLink, BookOpen, Eye, Lock, Sparkles } from "lucide-react";
 import { displayTitle } from "@/lib/captures/display";
+import { captureReaderHref } from "@/lib/search/result-href";
 
 export interface CaptureCardData {
   id: string;
   url: string | null;
+  /**
+   * The in-app page for this row, as `/api/search` decided it. A brain page's
+   * id is a SLUG, so the card cannot derive this from `id` — when it is
+   * absent the capture-reader route is the correct fallback, because the row
+   * is then a real capture.
+   */
+  href?: string | null;
   ogTitle?: string | null;
   title?: string | null;
   derivedTitle?: string | null;
@@ -45,6 +53,9 @@ export function CaptureCard({
   const kind = row.kindClassified ?? row.kind ?? null;
   const opened = !!row.openedAt;
   const created = typeof row.createdAt === "string" ? new Date(row.createdAt) : row.createdAt;
+  // Reader control only when there is a real route to it: the server's href,
+  // or the capture-reader route when the id is genuinely a capture uuid.
+  const readerHref = captureReaderHref(row.id, row.href);
 
   function markOpened() {
     // Fire-and-forget; the <a> handles navigation natively so the click
@@ -135,12 +146,14 @@ export function CaptureCard({
             <ExternalLink className="h-3 w-3" /> Open
           </a>
         ) : null}
-        <Link
-          href={`/app/bookmarks/${row.id}/reader`}
-          className="inline-flex items-center gap-1.5 rounded border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <BookOpen className="h-3 w-3" /> Reader
-        </Link>
+        {readerHref ? (
+          <Link
+            href={readerHref}
+            className="inline-flex items-center gap-1.5 rounded border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <BookOpen className="h-3 w-3" /> {row.href ? "Open page" : "Reader"}
+          </Link>
+        ) : null}
       </div>
     </div>
   );

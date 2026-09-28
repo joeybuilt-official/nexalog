@@ -95,6 +95,33 @@ export interface GBrainPage {
   body: string;
 }
 
+/**
+ * One row of the brain's page index (list_pages) — identity only, NO body.
+ * Browsing needs the catalogue, not every page's markdown; a reader that wants
+ * the body asks for that one page (getPage).
+ */
+export interface GBrainPageSummary {
+  slug: string;
+  title: string;
+  /** gbrain page type (person/company/project/concept/atom/note/…). */
+  type: string;
+  /** Which gbrain source the page belongs to (null when the tool omits it). */
+  sourceId: string | null;
+  /** Last update instant, ISO-8601 (null when the tool omits it). */
+  updatedAt: string | null;
+}
+
+/** Sort orders `list_pages` accepts. Defaults to `updated_desc`. */
+export type GBrainPageSort = "updated_desc" | "updated_asc" | "created_desc" | "slug";
+
+export interface GBrainListPagesOptions {
+  limit?: number;
+  offset?: number;
+  /** Filter to one page type. */
+  type?: string;
+  sort?: GBrainPageSort;
+}
+
 /** A directed link between two pages (traverse_graph / get_backlinks / get_links). */
 export interface GBrainLink {
   fromSlug: string;
@@ -128,6 +155,12 @@ export interface GBrainClient {
   query(query: string, opts?: { limit?: number; types?: string[] }): Promise<GBrainSearchHit[]>;
   /** Read one page by slug, or null when absent. */
   getPage(slug: string): Promise<GBrainPage | null>;
+  /**
+   * List the brain's pages (identity only — no bodies), newest first by
+   * default. A result of exactly `limit` rows may be truncated: page with
+   * `offset` rather than assuming the list is whole.
+   */
+  listPages(opts?: GBrainListPagesOptions): Promise<GBrainPageSummary[]>;
   /** Incoming links to a page. */
   getBacklinks(slug: string): Promise<GBrainLink[]>;
   /** Walk the link graph from a page (outgoing/ingoing/both, up to depth). */

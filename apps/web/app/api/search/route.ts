@@ -40,6 +40,7 @@ import { db, schema } from "@/lib/db";
 import { getComposition } from "@/composition";
 import { getUserWorkspaces } from "@/lib/workspace";
 import { displayTitle, noteDisplayTitle } from "@/lib/captures/display";
+import { brainPageHref } from "@/lib/search/result-href";
 import {
   and,
   eq,
@@ -103,6 +104,17 @@ export interface SearchResult {
   id: string;
   kind: "note" | "video" | "article" | "reference" | "social" | "homepage" | "other";
   title: string;
+  /**
+   * The in-app route for this row, decided HERE (where the row's identity is
+   * known) rather than guessed by the client from `kind`.
+   *
+   * `id` is NOT a uniform key: a note's and a capture's are UUIDs, but a BRAIN
+   * page's is its slug (`concepts/litellm-gateway`). Every client used to map
+   * "not a note" to `/app/bookmarks/<id>/reader`, so each brain hit 404'd on
+   * click. `null` means the row genuinely has no in-app route (open its `url`
+   * instead) — never a link to invent.
+   */
+  href: string | null;
   url: string | null;
   themeLabel: string | null;
   themeRegion: string | null;
@@ -226,6 +238,8 @@ function captureToResult(
     // Always go through displayTitle so raw URLs / video ids / filenames
     // never escape into the search results UI.
     title: displayTitle(r),
+    // A capture's id IS the uuid its reader route takes.
+    href: `/app/bookmarks/${r.id}/reader`,
     url: r.url,
     themeLabel: r.themeLabel,
     themeRegion: r.themeRegion,
@@ -255,6 +269,7 @@ function noteToResult(
     id: n.id,
     kind: "note",
     title: noteDisplayTitle(n.title, n.content),
+    href: `/app/notes/${n.id}`,
     url: null,
     themeLabel: null,
     themeRegion: null,
@@ -352,6 +367,9 @@ export async function POST(request: Request) {
           id: h.slug,
           kind: gbrainTypeToKind(h.type),
           title: h.title || h.slug,
+          // THE fix: a brain page is addressed by its SLUG, not a uuid. This is
+          // the route /app/brain serves (catch-all — slugs are paths).
+          href: brainPageHref(h.slug),
           url: null,
           themeLabel: null,
           themeRegion: null,
@@ -388,6 +406,9 @@ export async function POST(request: Request) {
             id: h.slug,
             kind: "note" as const,
             title: h.title,
+            // The fs scan returns brain-repo slugs too — same route as a
+            // GBrain hit. Mapping these to /app/notes/<slug> was the same 404.
+            href: brainPageHref(h.slug),
             url: null,
             themeLabel: null,
             themeRegion: null,
