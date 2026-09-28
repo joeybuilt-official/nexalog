@@ -53,6 +53,9 @@ export type {
   GBrainClient,
   GBrainSearchHit,
   GBrainPage,
+  GBrainPageSummary,
+  GBrainPageSort,
+  GBrainListPagesOptions,
   GBrainLink,
   GBrainEntity,
 } from "./ports";

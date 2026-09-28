@@ -257,6 +257,46 @@ describe("POST /api/search — GBrain and lexical results FUSE", () => {
     expect(body.rankingMode).toBe("hybrid");
   });
 
+  it("gives every result an href — a brain hit's points at /app/brain/<slug>", async () => {
+    // THE 404 CHAIN: a brain hit's id is its SLUG, and the clients used to
+    // derive the route from `kind` alone, which sent every brain hit to the
+    // capture reader route (/app/bookmarks/<slug>/reader) and 404'd. The route
+    // now decides the href, so no client has to guess.
+    selectQueue.push([{ row: BOOKMARK, rank: 0.9 }]);
+    selectQueue.push([{ row: NOTE, rank: 0.5 }]);
+    selectQueue.push([]);
+    withGbrain();
+
+    const body = await (await search("docker")).json();
+    const byId = new Map<string, { href: string | null; kind: string }>(
+      body.results.map((r: { id: string; href: string | null; kind: string }) => [r.id, r]),
+    );
+
+    expect(byId.get(GBRAIN_HIT.slug)?.href).toBe("/app/brain/concepts/self-hosting");
+    expect(byId.get(NOTE.id)?.href).toBe(`/app/notes/${NOTE.id}`);
+    expect(byId.get(BOOKMARK.id)?.href).toBe(`/app/bookmarks/${BOOKMARK.id}/reader`);
+    // The regression, stated as an assertion: a slug-keyed row must never be
+    // addressed as a uuid. Nothing the server emits may look like this.
+    expect(byId.get(GBRAIN_HIT.slug)?.href).not.toMatch(/\/app\/bookmarks\//);
+  });
+
+  it("gives the fs-scan brain fallback an href too (same slug, same route)", async () => {
+    selectQueue.push([]);
+    selectQueue.push([]);
+    selectQueue.push([]);
+    const fsHit = { slug: "people/jane-doe", title: "Jane Doe", snippet: "…jane…" };
+    getComposition.mockReturnValue({
+      gbrain: { search: vi.fn(async () => []), query: vi.fn(async () => []) },
+      brainIndex: { search: vi.fn(async () => [fsHit]) },
+    });
+
+    const body = await (await search("jane")).json();
+    const hit = body.results.find((r: { id: string }) => r.id === "people/jane-doe");
+
+    // The fs scan returns brain-repo slugs, so it needs the same treatment.
+    expect(hit.href).toBe("/app/brain/people/jane-doe");
+  });
+
   it("reports `lexical` when GBrain is not configured — bookmarks still searchable", async () => {
     selectQueue.push([{ row: BOOKMARK, rank: 0.9 }]);
     selectQueue.push([]);

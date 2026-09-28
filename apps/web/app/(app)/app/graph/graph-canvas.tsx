@@ -23,6 +23,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 import {
   FILTER_GROUPS,
@@ -43,6 +45,7 @@ import {
   viewBoxFor,
   type GraphViewport,
 } from "@/lib/graph/viewport";
+import { brainPageHref } from "@/lib/search/result-href";
 
 interface GraphNode {
   slug: string;
@@ -195,6 +198,7 @@ function Notice({
 }
 
 export function GraphCanvas({ rootSlug }: { rootSlug?: string | null }) {
+  const router = useRouter();
   const [data, setData] = useState<GraphPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -574,7 +578,24 @@ export function GraphCanvas({ rootSlug }: { rootSlug?: string | null }) {
                   transform={`translate(${p.x},${p.y})`}
                   opacity={dim ? 0.2 : 1}
                   className="cursor-pointer"
-                  onClick={() => setSelected(isSel ? null : n.slug)}
+                  role="link"
+                  tabIndex={0}
+                  aria-label={`Open ${n.title} (${n.slug})`}
+                  onClick={() => {
+                    // A node IS a page: clicking it opens that page. Before
+                    // this, a click only re-centred, so nothing in the graph
+                    // could reach a page's body or its typed links — the
+                    // reader did not exist. Selecting (for the links panel) is
+                    // still available from the search-suggestion chips, and
+                    // the panel carries its own "Open page" link.
+                    router.push(brainPageHref(n.slug));
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      router.push(brainPageHref(n.slug));
+                    }
+                  }}
                 >
                   {isFocused && (
                     <circle r={r + 6} fill="none" stroke="var(--accent)" strokeWidth={1.5} opacity={0.8} />
@@ -630,6 +651,12 @@ export function GraphCanvas({ rootSlug }: { rootSlug?: string | null }) {
               </span>
             </div>
             <div className="flex shrink-0 gap-2 text-xs">
+              <Link
+                className="underline hover:text-accent"
+                href={brainPageHref(selectedNode.slug)}
+              >
+                Open page
+              </Link>
               <button
                 type="button"
                 className="underline hover:text-accent"

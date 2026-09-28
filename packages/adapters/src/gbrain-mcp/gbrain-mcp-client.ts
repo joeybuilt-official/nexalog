@@ -24,6 +24,8 @@ import type {
   GBrainClient,
   GBrainSearchHit,
   GBrainPage,
+  GBrainPageSummary,
+  GBrainListPagesOptions,
   GBrainLink,
   GBrainEntity,
 } from "@nexalog/core";
@@ -111,6 +113,36 @@ export class GBrainMcpClient implements GBrainClient {
     const text = await this.call("get_backlinks", { slug });
     const arr = this.parseTextArray(text);
     return arr.map((item) => this.toLink(item, null)).filter((l): l is GBrainLink => l !== null);
+  }
+
+  /**
+   * List the brain's pages (identity only). VERIFIED against the live server:
+   * `list_pages` returns `{slug, source_id, type, title, updated_at}` rows and
+   * accepts `limit` / `offset` / `type` / `sort`.
+   */
+  async listPages(opts?: GBrainListPagesOptions): Promise<GBrainPageSummary[]> {
+    const args: Record<string, unknown> = {};
+    if (opts?.limit !== undefined) args.limit = opts.limit;
+    if (opts?.offset !== undefined) args.offset = opts.offset;
+    if (opts?.type) args.type = opts.type;
+    if (opts?.sort) args.sort = opts.sort;
+    const text = await this.call("list_pages", args);
+    const arr = this.parseTextArray(text);
+    const out: GBrainPageSummary[] = [];
+    for (const item of arr) {
+      if (typeof item !== "object" || item === null) continue;
+      const r = item as Record<string, unknown>;
+      const slug = str(r.slug);
+      if (!slug) continue; // a row with no slug cannot be read or linked to
+      out.push({
+        slug,
+        title: str(r.title) ?? "",
+        type: str(r.type) ?? "",
+        sourceId: str(r.source_id),
+        updatedAt: str(r.updated_at),
+      });
+    }
+    return out;
   }
 
   async traverseGraph(

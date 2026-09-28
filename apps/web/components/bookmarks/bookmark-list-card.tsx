@@ -57,6 +57,7 @@ import {
 } from "@/lib/captures/display";
 import type { BookmarkDensity } from "./density";
 import type { SearchResult, ResultKind } from "@/components/content-finder";
+import { captureReaderHref } from "@/lib/search/result-href";
 
 interface BookmarkCardProps {
   result: SearchResult;
@@ -196,7 +197,10 @@ export function BookmarkCard({
         case "r":
         case "R":
           e.preventDefault();
-          window.location.href = `/app/bookmarks/${result.id}/reader`;
+          // The server decides the route: a brain hit's id is a slug, so the
+          // reader route cannot be derived from `result.id` alone.
+          window.location.href =
+            captureReaderHref(result.id, result.href) ?? `/app/bookmarks/${result.id}`;
           break;
         case "c":
         case "C":
@@ -209,7 +213,7 @@ export function BookmarkCard({
           break;
       }
     },
-    [handleOpen, handleCopy, onToggleSelect, result.id]
+    [handleOpen, handleCopy, onToggleSelect, result]
   );
 
   // Favicon JSX inlined per call site below — React Compiler's
@@ -508,18 +512,27 @@ function ActionToolbar({
   onArchive: () => void | Promise<void>;
   variant: "icon" | "full";
 }) {
+  // Server-decided route. A brain hit's id is a slug, so the reader route
+  // cannot be derived from `result.id`; only a row whose id is genuinely a
+  // capture uuid falls back to it, and a row with neither gets no control at
+  // all rather than a link to a page that will not resolve.
+  const readerHref = captureReaderHref(result.id, result.href);
+  const readerLabel = result.href?.startsWith("/app/brain/") ? "Open page" : "Reader";
+
   if (variant === "icon") {
     return (
       <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
         <IconBtn label="Open" onClick={onOpen} icon={ExternalLink} />
-        <Link
-          href={`/app/bookmarks/${result.id}/reader`}
-          className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          aria-label="Reader"
-          title="Reader"
-        >
-          <BookOpen className="h-4 w-4" aria-hidden />
-        </Link>
+        {readerHref ? (
+          <Link
+            href={readerHref}
+            className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            aria-label={readerLabel}
+            title={readerLabel}
+          >
+            <BookOpen className="h-4 w-4" aria-hidden />
+          </Link>
+        ) : null}
         <IconBtn
           label={copied ? "Copied" : "Copy URL"}
           onClick={() => void onCopy()}
@@ -550,13 +563,15 @@ function ActionToolbar({
         <ExternalLink className="h-3 w-3" aria-hidden />
         Open
       </button>
-      <Link
-        href={`/app/bookmarks/${result.id}/reader`}
-        className="inline-flex items-center gap-1.5 rounded border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <BookOpen className="h-3 w-3" aria-hidden />
-        Reader
-      </Link>
+      {readerHref ? (
+        <Link
+          href={readerHref}
+          className="inline-flex items-center gap-1.5 rounded border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <BookOpen className="h-3 w-3" aria-hidden />
+          {readerLabel}
+        </Link>
+      ) : null}
 
       <div className="ml-auto flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
         <IconBtn

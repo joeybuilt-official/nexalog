@@ -52,6 +52,8 @@ export interface SearchResult {
   id: string;
   kind: ResultKind;
   title: string;
+  /** Server-decided route. Null when the row has no in-app page. */
+  href?: string | null;
   url: string | null;
   themeLabel: string | null;
   themeRegion: string | null;

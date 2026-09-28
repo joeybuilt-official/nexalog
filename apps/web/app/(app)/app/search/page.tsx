@@ -5,18 +5,21 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { useEffect, useState, Suspense } from "react";
 import { FileText, Bookmark, Video, BookOpen, Globe } from "lucide-react";
 import { parseQueryDSL } from "@/lib/search/query-dsl";
+import { resolveResultHref } from "@/lib/search/result-href";
 
 interface SearchResult {
   id: string;
   kind: string;
   title: string;
+  /** Server-decided route (see /api/search — a brain hit's id is a slug). */
+  href?: string | null;
   url: string | null;
   summary: string | null;
   urlHost: string | null;
 }
 
-function kindHref(r: SearchResult) {
-  return r.kind === "note" ? `/app/notes/${r.id}` : `/app/bookmarks/${r.id}/reader`;
+function kindHref(r: SearchResult): string | null {
+  return resolveResultHref(r);
 }
 
 function KindIcon({ kind }: { kind: string }) {
@@ -130,26 +133,34 @@ function SearchResults() {
       )}
 
       <ul className="divide-y">
-        {results.map((r) => (
-          <li key={r.id}>
-            <button
-              className="w-full flex items-start gap-3 py-3 text-left hover:bg-muted/40 px-1 rounded"
-              onClick={() => router.push(kindHref(r))}
-            >
-              <KindIcon kind={r.kind} />
-              <div className="min-w-0">
-                <p className="text-sm font-medium truncate">
-                  {r.title || r.urlHost || "Untitled"}
-                </p>
-                {r.summary && (
-                  <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
-                    {r.summary}
+        {results.map((r) => {
+          const href = kindHref(r);
+          return (
+            <li key={r.id}>
+              <button
+                className="w-full flex items-start gap-3 py-3 text-left hover:bg-muted/40 px-1 rounded"
+                onClick={() => {
+                  // A row with no in-app page opens its own URL; one with
+                  // neither is inert rather than pushing a 404.
+                  if (href) router.push(href);
+                  else if (r.url) window.open(r.url, "_blank", "noopener,noreferrer");
+                }}
+              >
+                <KindIcon kind={r.kind} />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">
+                    {r.title || r.urlHost || "Untitled"}
                   </p>
-                )}
-              </div>
-            </button>
-          </li>
-        ))}
+                  {r.summary && (
+                    <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+                      {r.summary}
+                    </p>
+                  )}
+                </div>
+              </button>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
