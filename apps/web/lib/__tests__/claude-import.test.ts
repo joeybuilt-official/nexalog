@@ -350,7 +350,7 @@ describe("extractBlockText — content block kinds", () => {
           command: "update",
           new_str: "### 1. Main Dashboard",
           old_str: "# Digital Brain PKMS MVP Builder Prompt",
-          version_uuid: "7d645cdb-4366-41d4-9b3b-186504c03e2d",
+          version_uuid: "0a110000-0000-4000-8000-0000000000a5",
         },
       },
     ]);
@@ -371,7 +371,7 @@ describe("extractBlockText — content block kinds", () => {
         type: "tool_use",
         name: "artifacts",
         id: null,
-        input: { version_uuid: "7d645cdb-4366-41d4-9b3b-186504c03e2d" },
+        input: { version_uuid: "0a110000-0000-4000-8000-0000000000a5" },
       },
       { type: "text", text: "reverted" },
     ]);
@@ -449,7 +449,7 @@ describe("extractBlockText — content block kinds", () => {
     const extracted = extractBlockText([
       {
         type: "document",
-        file_uuid: "da10e24c-d904-596e-9fcc-1df487c76bfd",
+        file_uuid: "0a110000-0000-4000-8000-0000000000a8",
         title: "Agreement.docx",
       },
       { type: "text", text: "Here are the updated docs." },
@@ -458,7 +458,7 @@ describe("extractBlockText — content block kinds", () => {
       {
         kind: "document",
         title: "Agreement.docx",
-        fileUuid: "da10e24c-d904-596e-9fcc-1df487c76bfd",
+        fileUuid: "0a110000-0000-4000-8000-0000000000a8",
         source: null,
       },
     ]);
@@ -469,14 +469,14 @@ describe("extractBlockText — content block kinds", () => {
 
   it("lifts `image` blocks into file references with their file_uuid and source", () => {
     const extracted = extractBlockText([
-      { type: "image", source: null, file_uuid: "b28bfc03-307d-4420-95e4-92c6f28e2d49" },
+      { type: "image", source: null, file_uuid: "0a110000-0000-4000-8000-0000000000a7" },
       { type: "text", text: "Ready to test the driver's side then." },
     ]);
     expect(extracted.fileRefs).toEqual([
       {
         kind: "image",
         title: null,
-        fileUuid: "b28bfc03-307d-4420-95e4-92c6f28e2d49",
+        fileUuid: "0a110000-0000-4000-8000-0000000000a7",
         source: null,
       },
     ]);
@@ -619,14 +619,14 @@ describe("normalizeAttachments", () => {
   it("reads the `files` field, its shape, and its file_uuid (the real-data shape)", () => {
     const result = normalizeAttachments(
       [],
-      [{ file_uuid: "f96f2fca-72c1-408b-af3d-3350bb484be8", file_name: "Service Agreement.pdf" }],
+      [{ file_uuid: "0a110000-0000-4000-8000-0000000000b1", file_name: "Service Agreement.pdf" }],
     );
     expect(result.attachments).toHaveLength(1);
     expect(result.attachments[0]).toEqual({
       name: "Service Agreement.pdf",
       mimeType: null,
       sizeBytes: null,
-      fileUuid: "f96f2fca-72c1-408b-af3d-3350bb484be8",
+      fileUuid: "0a110000-0000-4000-8000-0000000000b1",
       shape: "file",
     });
   });
@@ -751,8 +751,8 @@ describe("parseClaudeMessage — text precedence and totality", () => {
   it("treats a document / image reference as importable content even with no prose", () => {
     const message = parseMessage({
       text: "",
-      content: [{ type: "image", source: null, file_uuid: "b28bfc03-307d-4420-95e4-92c6f28e2d49" }],
-      files: [{ file_uuid: "b28bfc03-307d-4420-95e4-92c6f28e2d49", file_name: "4638.jpg" }],
+      content: [{ type: "image", source: null, file_uuid: "0a110000-0000-4000-8000-0000000000a7" }],
+      files: [{ file_uuid: "0a110000-0000-4000-8000-0000000000a7", file_name: "photo-4638.jpg" }],
     });
     expect(message.text).toBe("");
     expect(messageHasImportableContent(message)).toBe(true);
@@ -764,8 +764,8 @@ describe("parseClaudeMessage — text precedence and totality", () => {
       content: [{ type: "text", text: "" }],
       files: [
         {
-          file_uuid: "f96f2fca-72c1-408b-af3d-3350bb484be8",
-          file_name: "Service Agreement Dustin 10 Ton.pdf",
+          file_uuid: "0a110000-0000-4000-8000-0000000000b1",
+          file_name: "Service Agreement Example 10 Ton.pdf",
         },
       ],
       attachments: [],
@@ -1168,14 +1168,14 @@ describe("renderMessageMarkdown / renderConversationBody", () => {
       content: [
         {
           type: "document",
-          file_uuid: "da10e24c-d904-596e-9fcc-1df487c76bfd",
+          file_uuid: "0a110000-0000-4000-8000-0000000000a8",
           title: "Agreement.docx",
         },
         { type: "text", text: "Here are the updated docs." },
       ],
       files: [
         {
-          file_uuid: "da10e24c-d904-596e-9fcc-1df487c76bfd",
+          file_uuid: "0a110000-0000-4000-8000-0000000000a8",
           file_name: "Agreement.docx",
           file_size: 4096,
           file_type: "docx",
@@ -1185,7 +1185,7 @@ describe("renderMessageMarkdown / renderConversationBody", () => {
     const markdown = renderMessageMarkdown(message);
     expect(markdown).toContain("**Attachments**");
     expect(markdown).toContain(
-      "- document: Agreement.docx — docx, 4096 bytes, file da10e24c-d904-596e-9fcc-1df487c76bfd",
+      "- document: Agreement.docx — docx, 4096 bytes, file 0a110000-0000-4000-8000-0000000000a8",
     );
     // One line for the file, not two — the block and the record are the same thing.
     expect(markdown.split("\n").filter((l) => l.includes("Agreement.docx"))).toHaveLength(1);
@@ -1197,14 +1197,14 @@ describe("renderMessageMarkdown / renderConversationBody", () => {
       content: [{ type: "text", text: "" }],
       files: [
         {
-          file_uuid: "f96f2fca-72c1-408b-af3d-3350bb484be8",
-          file_name: "Service Agreement Dustin 10 Ton.pdf",
+          file_uuid: "0a110000-0000-4000-8000-0000000000b1",
+          file_name: "Service Agreement Example 10 Ton.pdf",
         },
       ],
     });
     const markdown = renderMessageMarkdown(message);
     expect(markdown).toContain("**Attachments**");
-    expect(markdown).toContain("Service Agreement Dustin 10 Ton.pdf");
+    expect(markdown).toContain("Service Agreement Example 10 Ton.pdf");
     expect(markdown).not.toContain("no importable text");
   });
 
@@ -1609,7 +1609,7 @@ describe("buildPlan — full synthetic conversation (the real export's shapes)",
           uuid: MSG_3,
           text: "",
           content: [
-            { type: "image", source: null, file_uuid: "b28bfc03-307d-4420-95e4-92c6f28e2d49" },
+            { type: "image", source: null, file_uuid: "0a110000-0000-4000-8000-0000000000a7" },
             { type: "text", text: "Ready to test the driver's side then.", citations: [] },
             {
               type: "injected_prompt_block",
@@ -1617,7 +1617,7 @@ describe("buildPlan — full synthetic conversation (the real export's shapes)",
               injection_source: "date_note",
             },
           ],
-          files: [{ file_uuid: "b28bfc03-307d-4420-95e4-92c6f28e2d49", file_name: "4638.jpg" }],
+          files: [{ file_uuid: "0a110000-0000-4000-8000-0000000000a7", file_name: "photo-4638.jpg" }],
         }),
       ],
     };
@@ -1642,7 +1642,7 @@ describe("buildPlan — full synthetic conversation (the real export's shapes)",
     expect(page.body).toContain("*Sources:*");
     expect(page.body).toContain("[https://example.com/k8s](https://example.com/k8s)");
     expect(page.body).toContain("**Attachments**");
-    expect(page.body).toContain("image: 4638.jpg — file b28bfc03-307d-4420-95e4-92c6f28e2d49");
+    expect(page.body).toContain("image: photo-4638.jpg — file 0a110000-0000-4000-8000-0000000000a7");
     // The injected block and the tool's input/output are machinery, never page content.
     expect(page.body).not.toContain("current date");
     expect(page.body).not.toContain("ingress 502 cert rotation");
@@ -1694,7 +1694,7 @@ describe("real-export shapes — verbatim fragments from the on-disk export", ()
     stop_timestamp: null,
     flags: null,
     type: "document",
-    file_uuid: "da10e24c-d904-596e-9fcc-1df487c76bfd",
+    file_uuid: "0a110000-0000-4000-8000-0000000000a8",
     title: "10 Ton Incentive Unit Award Agreement Full-On Pictures.docx",
   };
 
@@ -1705,7 +1705,7 @@ describe("real-export shapes — verbatim fragments from the on-disk export", ()
     flags: null,
     type: "image",
     source: null,
-    file_uuid: "b28bfc03-307d-4420-95e4-92c6f28e2d49",
+    file_uuid: "0a110000-0000-4000-8000-0000000000a7",
   };
 
   it("parses the real injected / document / image blocks with no unknown-kind warning", () => {
@@ -1723,23 +1723,23 @@ describe("real-export shapes — verbatim fragments from the on-disk export", ()
   it("handles the real 'four documents + text + two injected blocks' message end to end", () => {
     const message = parseClaudeMessage(
       {
-        uuid: "01a0b690-7346-76ff-9e9c-cd45a84b36c2",
+        uuid: "0a110000-0000-4000-8000-0000000000a1",
         text: "Here are the updated docs.",
         content: [
           REAL_DOCUMENT,
           {
             ...REAL_DOCUMENT,
-            file_uuid: "8ed5b6ed-032c-5a65-a809-919b7eda516b",
+            file_uuid: "0a110000-0000-4000-8000-0000000000a6",
             title: "Joinder.docx",
           },
           {
             ...REAL_DOCUMENT,
-            file_uuid: "23c46244-6f9b-5b87-9c09-0f175358c53b",
+            file_uuid: "0a110000-0000-4000-8000-0000000000a4",
             title: "Service v2 Clean.docx",
           },
           {
             ...REAL_DOCUMENT,
-            file_uuid: "f60fdb97-9fe8-536b-a211-b0806df70859",
+            file_uuid: "0a110000-0000-4000-8000-0000000000a9",
             title: "Service v2.docx",
           },
           { type: "text", text: "Here are the updated docs.", citations: [] },
@@ -1774,7 +1774,7 @@ describe("real-export shapes — verbatim fragments from the on-disk export", ()
   it("keeps the real 'image + text + injected' message's prose and attachment", () => {
     const message = parseClaudeMessage(
       {
-        uuid: "01a0ba6c-6013-7bff-b616-8a39036928b0",
+        uuid: "0a110000-0000-4000-8000-0000000000a3",
         content: [
           REAL_IMAGE,
           { type: "text", text: "Ready to test the driver's side then.", citations: [] },
@@ -1784,14 +1784,14 @@ describe("real-export shapes — verbatim fragments from the on-disk export", ()
         created_at: "2026-09-19T16:07:39.444960Z",
         updated_at: "2026-09-19T16:07:39.444960Z",
         attachments: [],
-        files: [{ file_uuid: "b28bfc03-307d-4420-95e4-92c6f28e2d49", file_name: "4638.jpg" }],
-        parent_message_uuid: "01a0b762-dab6-74ee-904b-298acc02ab34",
+        files: [{ file_uuid: "0a110000-0000-4000-8000-0000000000a7", file_name: "photo-4638.jpg" }],
+        parent_message_uuid: "0a110000-0000-4000-8000-0000000000a2",
       },
       0,
     );
     const markdown = renderMessageMarkdown(message);
     expect(message.text).toBe("Ready to test the driver's side then.");
-    expect(markdown).toContain("image: 4638.jpg");
+    expect(markdown).toContain("image: photo-4638.jpg");
     expect(markdown).not.toContain("current date");
   });
 
