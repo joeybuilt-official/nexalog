@@ -10,7 +10,11 @@
 import { describe, it, expect } from "vitest";
 import { Slug } from "@nexalog/core";
 import {
+  attachmentPath,
+  attachmentShard,
   buildPlan,
+  collectBodyFileRefs,
+  collectFrontmatterFileRefs,
   deriveSlug,
   isValidSlugPath,
   mapAnytypeType,
@@ -20,10 +24,16 @@ import {
   pickCreatedAt,
   pickUpdatedAt,
   pickUrl,
+  redactEmailTokens,
+  rewriteBodyFileRefs,
+  senderToken,
   serializePageFile,
+  shortHash,
   slugify,
+  slugifyTitle,
   splitAnytypeFrontmatter,
   toDate,
+  uncollapseAddress,
   type AnytypeObject,
   type PlanContext,
 } from "@/lib/import/anytype";
@@ -58,6 +68,8 @@ function planCtx(overrides: Partial<PlanContext> = {}): PlanContext {
   return {
     existingCaptureUrls: new Set<string>(),
     existingPages: new Map<string, string | null>(),
+    availableAttachments: new Set<string>(),
+    existingAttachments: new Set<string>(),
     importedAt: IMPORTED_AT,
     importSource: "anytype",
     ...overrides,
@@ -605,6 +617,309 @@ describe("buildPlan — pages", () => {
   });
 });
 
+describe("email addresses in a title never become a slug", () => {
+  // Synthetic senders only. A test file in a PUBLIC repo is a publication surface, so the real
+  // third-party addresses the sanitizer was written for appear here in shape, never in fact.
+  const SENDER_A = "quinntalty@example.com";
+  const SENDER_B = "robinhale@example.com";
+  const COLLAPSED_A = "quinntaltyatexample-com"; // what slug.Make leaves for SENDER_A
+  const COLLAPSED_B = "robinhaleatexample-com";
+
+  it("replaces a literal address with a neutral token", () => {
+    const token = senderToken(SENDER_A);
+    expect(token.startsWith("sender-")).toBe(true);
+    expect(token).toBe(`sender-${shortHash(SENDER_A)}`);
+    expect(redactEmailTokens(`Fwd from ${SENDER_A} about merch`)).toBe(
+      `Fwd from ${token} about merch`,
+    );
+    expect(redactEmailTokens(`Fwd from ${SENDER_A} about merch`)).not.toContain("@");
+  });
+
+  it("replaces the collapsed form the exporter's own namer produces", () => {
+    expect(senderToken(uncollapseAddress(COLLAPSED_A))).toBe(senderToken(SENDER_A));
+    expect(redactEmailTokens(COLLAPSED_A)).toBe(senderToken(SENDER_A));
+    expect(redactEmailTokens(`re-${COLLAPSED_A}-hello`)).toBe(
+      `re-${senderToken(SENDER_A)}-hello`,
+    );
+  });
+
+  it("is deterministic: the same title always yields the same token and slug", () => {
+    const title = `${COLLAPSED_A}-thank-you-for-reaching-out`;
+    expect(redactEmailTokens(title)).toBe(redactEmailTokens(title));
+    expect(slugifyTitle(title)).toBe(slugifyTitle(title));
+    expect(deriveSlug(title, ID_NOTE)).toBe(deriveSlug(title, ID_NOTE));
+  });
+
+  it("never lets two senders share a token or a slug", () => {
+    expect(senderToken(SENDER_A)).not.toBe(senderToken(SENDER_B));
+    expect(redactEmailTokens(`${COLLAPSED_A}-hi`)).not.toBe(redactEmailTokens(`${COLLAPSED_B}-hi`));
+    expect(slugifyTitle(`${COLLAPSED_A}-hi`)).not.toBe(slugifyTitle(`${COLLAPSED_B}-hi`));
+  });
+
+  it("strips the address out of the slug and the remaining path stays legal", () => {
+    for (const title of [
+      `${COLLAPSED_A}-dustin-thank-you-for-reaching-out`,
+      `${COLLAPSED_B}-hello-my-application-was-received`,
+      `Fwd: ${SENDER_A}`,
+    ]) {
+      const slug = deriveSlug(title, ID_NOTE);
+      expect(slug).not.toBeNull();
+      expect(slug).not.toContain("@");
+      expect(slug).not.toContain("example");
+      expect(slug).not.toContain("atgmail");
+      expect(isValidSlugPath(`notes/${slug}`)).toBe(true);
+      expect(() => Slug.of(`notes/${slug}`)).not.toThrow();
+    }
+  });
+
+  it("leaves ordinary titles untouched", () => {
+    for (const title of [
+      "Clean garage",
+      "Q3 planning notes",
+      "Read later",
+      "Invoice 5280",
+      "Meeting notes for the team",
+      "Attachment handling",
+      "Get started",
+    ]) {
+      expect(redactEmailTokens(title)).toBe(title);
+      expect(slugifyTitle(title)).toBe(slugify(title));
+    }
+  });
+
+  it("is total: an empty title stays empty and yields no slug", () => {
+    expect(redactEmailTokens("")).toBe("");
+    expect(slugifyTitle("")).toBe("");
+    expect(deriveSlug("", "")).toBeNull();
+  });
+
+  it("still gives the object a slug when the sanitized title is all there is", () => {
+    // The token itself is slug-safe (`sender-` + hex), so a title that is nothing but an address
+    // produces a usable filename instead of falling through to the id.
+    expect(slugifyTitle(SENDER_A)).toBe(slugify(senderToken(SENDER_A)));
+  });
+});
+
+describe("attachment references", () => {
+  it("collects body refs in document order, deduped, and frontmatter refs whole-value only", () => {
+    const body = [
+      "![one](files/one.png)   ",
+      "[doc](files/report.pdf)   ",
+      "![again](files/one.png)   ",
+      "a prose mention of files/prose-only.png inside a sentence",
+    ].join("\n");
+    expect(collectBodyFileRefs(body)).toEqual(["files/one.png", "files/report.pdf"]);
+
+    expect(
+      collectFrontmatterFileRefs({
+        "Outgoing links": ["files/one.png", "some-other-page.md", "Someone", "files/one.png"],
+        Image: "files/cover.jpg",
+        Description: "mentions files/nope.png in prose",
+      }),
+    ).toEqual(["files/one.png", "files/cover.jpg"]);
+  });
+
+  it("names the copy after the page slug so a shared file name cannot collide", () => {
+    expect(attachmentPath("2026/03", "photo-roundup", "files/image.png")).toBe(
+      "attachments/2026/03/photo-roundup-image.png",
+    );
+    // No extension is not a decision point — the exporter writes real images without one.
+    expect(attachmentPath("2026/03", "photo-roundup", "files/no-extension-image")).toBe(
+      "attachments/2026/03/photo-roundup-no-extension-image",
+    );
+  });
+
+  it("cannot escape the attachments directory from a hostile reference name", () => {
+    const path = attachmentPath("2026/03", "page", "files/../../etc/passwd");
+    expect(path.startsWith("attachments/2026/03/page-")).toBe(true);
+    expect(path.includes("..")).toBe(false);
+  });
+
+  it("shards by the object's own date, falling back to the run date", () => {
+    expect(attachmentShard(new Date("2026-03-04T05:06:07Z"), IMPORTED_AT)).toBe("2026/03");
+    expect(attachmentShard(new Date("2024-12-31T23:59:59Z"), IMPORTED_AT)).toBe("2024/12");
+    expect(attachmentShard(null, IMPORTED_AT)).toBe("2026/09");
+  });
+
+  it("rewrites only the refs that have a destination", () => {
+    const body = "![a](files/a.png)   \n![b](files/b.png)   ";
+    const rewritten = rewriteBodyFileRefs(body, new Map([["files/a.png", "attachments/x/a.png"]]));
+    expect(rewritten).toContain("](attachments/x/a.png)");
+    expect(rewritten).toContain("](files/b.png)");
+  });
+});
+
+describe("buildPlan — attachments on a brain page", () => {
+  const REFS = ["files/screenshot-one.png", "files/report.pdf", "files/no-extension-image"];
+
+  const mediaNote = (id: string, title: string, file: string) =>
+    parseAs(
+      [
+        "# yaml-language-server: $schema=schemas/note.schema.json",
+        "Object type: Note",
+        "Outgoing links:",
+        "    - files/screenshot-one.png",
+        "    - files/report.pdf",
+        "    - files/no-extension-image",
+        'Creation date: "2026-03-04T05:06:07Z"',
+        `id: ${id}`,
+      ],
+      [
+        `# ${title}   `,
+        "",
+        "![one](files/screenshot-one.png)   ",
+        "[doc](files/report.pdf)   ",
+        "![one again](files/screenshot-one.png)   ",
+      ],
+      file,
+    );
+
+  const destOf = (slug: string, name: string) => `attachments/2026/03/${slug}-${name}`;
+
+  it("copies each referenced file and rewrites the body and the frontmatter list", () => {
+    const plan = buildPlan(
+      [mediaNote(ID_NOTE, "Photo Roundup", "photo-roundup.md")],
+      planCtx({ availableAttachments: new Set(REFS) }),
+    );
+    const page = plan.pages[0];
+    expect(page.action).toBe("WRITE");
+    expect(page.relPath).toBe("notes/photo-roundup.md");
+    expect(page.attachments).toEqual([
+      destOf("photo-roundup", "screenshot-one.png"),
+      destOf("photo-roundup", "report.pdf"),
+      destOf("photo-roundup", "no-extension-image"),
+    ]);
+    expect(page.refsRewritten).toBe(3);
+    // Body: every occurrence rewritten, including the duplicate, and no `files/` left behind.
+    expect(page.body).not.toContain("files/");
+    expect(page.body).toContain(`![one](${destOf("photo-roundup", "screenshot-one.png")})`);
+    expect(page.body.split(`![one again](${destOf("photo-roundup", "screenshot-one.png")})`).length - 1).toBe(1);
+    // Frontmatter: one additive list, and the page contract's own keys are unchanged.
+    expect(page.frontmatter.attachments).toEqual(page.attachments);
+    expect(Object.keys(page.frontmatter)).toEqual([
+      "type",
+      "title",
+      "anytype_id",
+      "import_source",
+      "imported_at",
+      "anytype_type",
+      "anytype_created_at",
+      "attachments",
+    ]);
+    // One media row per distinct ref, each planned as a copy owned by this page.
+    expect(plan.media).toHaveLength(3);
+    expect(plan.media.map((m) => m.action)).toEqual(["COPY", "COPY", "COPY"]);
+    expect(plan.media.every((m) => m.ownerRelPath === "notes/photo-roundup.md")).toBe(true);
+    expect(plan.media.map((m) => m.refKind)).toEqual([
+      "body+frontmatter",
+      "body+frontmatter",
+      "frontmatter",
+    ]);
+  });
+
+  it("reports a dangling reference instead of inventing a file", () => {
+    const plan = buildPlan(
+      [mediaNote(ID_NOTE, "Photo Roundup", "photo-roundup.md")],
+      planCtx({ availableAttachments: new Set(["files/report.pdf"]) }),
+    );
+    const missing = plan.media.filter((m) => m.action === "MISSING");
+    expect(missing.map((m) => m.ref)).toEqual([
+      "files/screenshot-one.png",
+      "files/no-extension-image",
+    ]);
+    expect(missing.every((m) => m.destRelPath !== undefined)).toBe(true);
+    expect(missing[0].reason).toContain("reported, not invented");
+    // The dangling ref is left exactly as it was and is NOT listed as an attachment of the page.
+    expect(plan.pages[0].body).toContain("](files/screenshot-one.png)");
+    expect(plan.pages[0].attachments).toEqual([destOf("photo-roundup", "report.pdf")]);
+    expect(plan.pages[0].refsRewritten).toBe(1);
+  });
+
+  it("does not copy again when the destination file is already on disk (idempotent re-run)", () => {
+    const dest = destOf("photo-roundup", "report.pdf");
+    const plan = buildPlan(
+      [mediaNote(ID_NOTE, "Photo Roundup", "photo-roundup.md")],
+      planCtx({
+        availableAttachments: new Set(REFS),
+        existingPages: new Map([["notes/photo-roundup.md", ID_NOTE]]),
+        existingAttachments: new Set([dest]),
+      }),
+    );
+    const page = plan.pages[0];
+    expect(page.action).toBe("SKIP-duplicate");
+    expect(page.refsRewritten).toBe(0);
+    expect(plan.media.filter((m) => m.action === "COPY")).toHaveLength(2);
+    expect(plan.media.filter((m) => m.action === "SKIP-present").map((m) => m.target)).toEqual([
+      dest,
+    ]);
+    // The reference still resolves — it was copied by the earlier run.
+    expect(page.attachments).toContain(dest);
+  });
+
+  it("reports attachments on an object that has no brain page rather than copying them", () => {
+    const bookmark = parseAs(
+      [
+        "# yaml-language-server: $schema=schemas/bookmark.schema.json",
+        "Object type: Bookmark",
+        "Source: https://example.com/watch?v=x",
+        "Picture:",
+        "    - files/promo-image.png",
+        "Image:",
+        "    - files/absent-image.png",
+        `id: ${ID_BOOKMARK}`,
+      ],
+      ["# A Bookmark   ", ""],
+      "a-bookmark.md",
+    );
+    const plan = buildPlan(
+      [bookmark],
+      planCtx({ availableAttachments: new Set(["files/promo-image.png"]) }),
+    );
+    expect(plan.captures).toHaveLength(1);
+    expect(plan.pages).toHaveLength(0);
+    expect(plan.media.map((m) => [m.ref, m.action])).toEqual([
+      ["files/promo-image.png", "SKIP-no-destination"],
+      ["files/absent-image.png", "MISSING"],
+    ]);
+    expect(plan.media.every((m) => m.ownerRelPath === null && m.destRelPath === null)).toBe(true);
+    expect(plan.media[0].reason).toContain("no brain page");
+    expect(plan.media[1].reason).toContain("reported, not invented");
+  });
+
+  it("uses the object's modified date for the shard when it has no created date", () => {
+    const object = parseAs(
+      [
+        "Object type: Note",
+        "Outgoing links:",
+        "    - files/late.png",
+        'Last modified: "2025-11-02T00:00:00Z"',
+        `id: ${ID_NOTE}`,
+      ],
+      ["# Late   ", "", "![x](files/late.png)"],
+      "late.md",
+    );
+    const plan = buildPlan([object], planCtx({ availableAttachments: new Set(["files/late.png"]) }));
+    expect(plan.pages[0].attachments).toEqual(["attachments/2025/11/late-late.png"]);
+  });
+
+  it("adds no attachments key to a page that references nothing", () => {
+    const plan = buildPlan(
+      [
+        parseAs(
+          ["Object type: Note", 'Creation date: "2026-03-04"', `id: ${ID_NOTE}`],
+          ["# Plain   ", "", "No media here."],
+          "plain.md",
+        ),
+      ],
+      planCtx(),
+    );
+    expect(plan.pages[0].attachments).toEqual([]);
+    expect(plan.pages[0].refsRewritten).toBe(0);
+    expect(Object.keys(plan.pages[0].frontmatter)).not.toContain("attachments");
+    expect(plan.media).toEqual([]);
+  });
+});
+
 describe("serializePageFile", () => {
   it("produces the exact byte shape FsGitBrainStore.savePage writes", () => {
     const text = serializePageFile({ type: "note", title: "T" }, "Body.   \n\n\n");
@@ -618,6 +933,32 @@ describe("serializePageFile", () => {
     expect(text.split("\n")[1]).toBe(`type: "note"`);
     expect(text.split("\n")[2]).toBe(`title: ${JSON.stringify(title)}`);
     expect(text.split("\n")[3]).toBe("---");
+  });
+
+  it("emits a list value as a block sequence this repo's own reader parses back", () => {
+    const text = serializePageFile(
+      { type: "note", attachments: ["attachments/2026/03/a.png", "attachments/2026/03/b c.pdf"] },
+      "Body.",
+    );
+    expect(text).toBe(
+      [
+        "---",
+        'type: "note"',
+        "attachments:",
+        '  - "attachments/2026/03/a.png"',
+        '  - "attachments/2026/03/b c.pdf"',
+        "---",
+        "Body.",
+        "",
+      ].join("\n"),
+    );
+    const { frontmatterText } = splitAnytypeFrontmatter(text);
+    expect(frontmatterText).not.toBeNull();
+    const { frontmatter } = parseAnytypeFrontmatter(frontmatterText as string);
+    expect(frontmatter.attachments).toEqual([
+      "attachments/2026/03/a.png",
+      "attachments/2026/03/b c.pdf",
+    ]);
   });
 
   it("round-trips through this parser's own reader (frontmatter + body)", () => {
