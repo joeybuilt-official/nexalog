@@ -176,7 +176,7 @@ instrumentation.ts         # Server boot hook (calls registerWithPlexoCore)
 - **Bookmark tags** — flat tagging in `nexalog.bookmark_tags` + `nexalog.bookmark_tag_assignments`
 - **Workspaces** — `nexalog.workspaces` (one active workspace per user in v1)
 - **Voice notes** — `nexalog.voice_notes` (schema exists; transcription via Plexo Deepgram when PAX-exposed)
-- **Imported conversations** — `nexalog.imported_conversations` + `nexalog.imported_messages` (ChatGPT/Claude export parser)
+- **Imported conversations** — Claude.ai export conversations land as brain pages `notes/<slug>.md` (`type: note`, dedupe on the frontmatter `claude_conversation_uuid`); the run is ledgered in `nexalog.imports`
 
 ## Where everything lives
 
