@@ -49,8 +49,12 @@ prose. One hole closed, not all of them — so these
 guardrails are doctrine, and they are absolute:
 
 - **NEVER** push to `main` directly. Branch + PR, always.
-- **NEVER** force-push, `git reset --hard` a shared branch, delete branches/tags, or rewrite published
-  history.
+- **NEVER** force-push `main` or a branch another writer has checked out, `git reset --hard` a shared
+  branch, delete branches/tags, or rewrite published history. **The one exception is your own unmerged
+  PR branch:** amending it and pushing with `git push --force-with-lease` is allowed — and is what the
+  docs landing gate requires when a commit is missing its worklog line, because that fix belongs in the
+  same commit rather than a follow-up. Never a bare `--force`, and never once someone else holds the
+  branch.
 - **NEVER** run `pnpm db:push` (`drizzle-kit push`). It diffs against the live DB and can drop columns.
   This database is the **shared Postgres** — the `nexalog` schema sits beside other apps'
   schemas, so a destructive command here is not contained to this project.
