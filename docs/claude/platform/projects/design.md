@@ -1,7 +1,10 @@
 # Projects — reference-based containers · Phase 2 design
 
 **Status:** design **APPROVED 2026-09-26** — ADR-0018 is Accepted (Phase 2 hard stop cleared).
-Phase 3 may start on the pure `packages/core` slice; the migration/adapter/route slice is **held**
+**Amended 2026-09-27:** sub-projects (project → sub-project, two levels) are in scope, per ADR-0001
+**Amendment A1** — ownership is introduced at the project→project layer and explicitly does not extend
+to items (§3.1 note below). Phase 3 may start on the pure `packages/core` slice; the
+migration/adapter/route slice is **held**
 on the `nexalog_v2` provenance answer (question 5 / §5), which a read-only production inspection is
 closing. **Nothing here shipped and nothing deployed** — no `packages/` or `apps/` source is touched
 by this document; Phase 5 (ship, deploy, prod migration) stays operator-gated and is out of scope.
@@ -97,6 +100,14 @@ alive — Phase 2 is a draft, not a ship, and a fragment dies with its merge.
 
 ### 3.1 Why reference-based rather than hierarchical or owning
 
+> **Amended 2026-09-27 — see A1.9 in `adr/0001-nexalog-projects.md`.** Projects may now have one
+> parent (`parent_id`): **ownership is introduced at the project→project layer, on purpose, and
+> explicitly does not extend to items.** Everything below still holds *for items* — notes, bookmarks
+> and journal entries stay reference-based, one unit still lives in many projects, and no cascade ever
+> runs from a project to an item. The rule that keeps the two apart: *ownership stops at the project
+> layer; a sub-project is not a container of its parent's items.* Read the paragraph below as the
+> item-layer rule it is, not as a claim about projects in general.
+
 A hierarchical (folder) model makes the container the owner: an item has one
 parent, moving it is a mutation with a cascade, and "delete the project" becomes
 ambiguous — does it delete my notes? The reference model inverts all three. The
@@ -114,7 +125,11 @@ A project is `projects/<slug>.md`, `type: project`, body = the living document,
 `members:` in frontmatter (flat `"<kind>:<ref>"` strings — see ADR-0018 §D1 for
 why the shape is flat: `core`'s `yamlBlock()` coerces array elements with
 `String(item)` and supports one nesting level, so an object-shaped list would
-serialize to `"[object Object]"` silently).
+serialize to `"[object Object]"` silently). Under **ADR-0001 Amendment A1**
+(2026-09-27) a sub-project adds one scalar there — `parent: projects/<parent-slug>`
+— and nothing else; `nexalog.project_index` gains a nullable `parent_slug`. That is
+the same relationship as A1.6's `parent_id`, carried in the page model instead of the
+table. Two levels maximum, enforced by the same A1.2 guard in either placement.
 
 This placement is what makes the whole design cohere with V2: the brain repo is
 already the system of record, `PAGE_TYPES` in
@@ -176,8 +191,9 @@ does not pretend otherwise. Three concrete mechanisms replace it:
 | Event | What happens | What does **not** happen |
 |---|---|---|
 | Archive a project | `lifecycle: archived` in frontmatter; index rebuilt | Members untouched; nothing is hidden from the member's own surfaces |
+| Archive a **parent** project | `lifecycle: archived` on the parent only | **No cascade to sub-projects** — they keep their own lifecycle; the UI badges + offers an explicit bulk archive (A1.4). An archived parent is still rendered for any child that is rendered, so a child never disappears from the list. |
 | Un-archive | `archived → active` | — |
-| Delete a project (hard) | `git rm projects/<slug>.md`; rows disappear at rebuild | **No cascade to members** — they are references, not children |
+| Delete a project (hard) | `git rm projects/<slug>.md`; rows disappear at rebuild | **No cascade to members** — they are references, not children; and under A1, no cascade to **sub-projects** either — a child's parent reference simply stops resolving and is promoted to root |
 | Remove an item from a project | Edit `members:` | The item is not deleted, modified, or moved |
 | Delete an item that a project references | Item's own deletion path (unchanged) | The project page is untouched; the ref becomes unresolved and is flagged |
 
@@ -276,10 +292,10 @@ enforces:
 
 | Method + path | Purpose |
 |---|---|
-| `GET /api/projects` | List — `lifecycle` filter, paginated |
-| `POST /api/projects` | Create — `{name, description?}`, zod `strict()` |
+| `GET /api/projects` | List — `lifecycle` filter, paginated, **returned as a tree** (roots + their children; A1.7). A `flat=1` opt-out may be carried for clients that want rows. |
+| `POST /api/projects` | Create — `{name, description?, parentId?}`, zod `strict()` (A1.6; the guard of A1.2 runs on any `parentId`). |
 | `GET /api/projects/[slug]` | Detail + hydrated members |
-| `PATCH /api/projects/[slug]` | Living doc and/or lifecycle |
+| `PATCH /api/projects/[slug]` | Living doc and/or lifecycle, **and/or `parentId`** (set / change / clear — the A1.2 guard runs on every change; clearing to `null` is always allowed) |
 | `DELETE /api/projects/[slug]` | Hard delete (`git rm`), operator-confirmed in UI |
 | `POST /api/projects/[slug]/members` | Add a **set** of refs |
 | `DELETE /api/projects/[slug]/members` | Remove a **set** of refs |
@@ -301,6 +317,14 @@ stay in sync with the routes that actually exist. Loading / empty / error are th
 required trio on every async surface — the degraded state says *which* rung it is
 on rather than rendering a blank pane.
 
+**Sub-projects (A1).** The list is a **two-level tree**: roots as top-level rows,
+children indented one level under a disclosure caret, with a "New sub-project"
+action on roots only. The detail page gains a Sub-projects panel and a Parent
+control; the two blocked states ("has a parent" / "has children") are stated in
+words where they fire, because a limit the user cannot see reads as a bug. An
+archived parent is still rendered for any child that is rendered. Full shape:
+ADR-0001 Amendment A1 §A1.7.
+
 **Mobile**: the V2 Flutter surface has no Projects screen — it was stripped in
 `5d8a1a1` (`chore(mobile): strip to v2 surface`). Parity is an operator question
 (ADR-0018 #6), not an assumption. Note the mobile app *does* still drive
@@ -312,6 +336,7 @@ on rather than rendering a blank pane.
 |---|---|---|
 | **`workspaces`** | Orthogonal. A workspace is the tenancy boundary (who owns a row); a project is a knowledge grouping (what belongs together). A project page lives *inside* a workspace's data. | **Do not merge them.** A project is not a workspace, and building projects on the workspace table would make containers a tenancy concept. |
 | **`bookmarks` / tags** | Related, not identical. Bookmarks are a *unit kind* that can be a member; tags are many-cheap-uncontrolled labels. | **Projects are not tags** (ADR-0018 alternatives). A project has a body, a lifecycle and deliberate membership; a tag has none of those. |
+| **Sub-projects (A1, 2026-09-27)** | A project may name **one parent** (`parent_id` on the live table; `parent: projects/<slug>` on the page model). Projects are hierarchical; items are not. | **Ownership at the project layer, references at the content layer** — deliberate, per ADR-0001 A1.9. Items keep every §3.1 property; a sub-project never inherits, moves, or owns its parent's members. Two levels, policy-enforced (A1.3). |
 | **brain page model (`type:`, slugs)** | A project **is** a brain page, `type: project`, slug `projects/<slug>`. | **DB-only was rejected.** `PAGE_TYPES` already includes `project`; the graph already filters `projects`; making projects DB-only would fork the model and put them outside the export door. |
 | **captures / `capture_index`** | A capture is addressable as `capture:<ulid>` and is a legit member kind. The index tables copy `capture_index`'s derived-and-rebuildable pattern rather than inventing one. | **Reuse the pattern.** |
 
@@ -373,6 +398,7 @@ reversible code), and nothing in Phase 2 authorizes anything in Phase 5.
 |---|---|
 | Is it shipped? Evidence. | §2, ADR-0018 §Reconciliation |
 | Data model + why reference-based | §3.1–3.4, ADR-0018 §D1–D2 |
+| Sub-projects (hierarchy, depth, cycles, lifecycle, rollup, DDL, UI, import) | ADR-0001 **Amendment A1** §A1.1–A1.12; this doc §3.1 note, §3.5 rows, §7 |
 | Schema placement | §4, ADR-0018 §D2 |
 | Layering / paths | §6, ADR-0018 §Layering |
 | Deletion & lifecycle | §3.5, ADR-0018 §D5 |
