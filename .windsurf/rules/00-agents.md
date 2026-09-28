@@ -49,8 +49,12 @@ prose. One hole closed, not all of them — so these
 guardrails are doctrine, and they are absolute:
 
 - **NEVER** push to `main` directly. Branch + PR, always.
-- **NEVER** force-push, `git reset --hard` a shared branch, delete branches/tags, or rewrite published
-  history.
+- **NEVER** force-push `main` or a branch another writer has checked out, `git reset --hard` a shared
+  branch, delete branches/tags, or rewrite published history. **The one exception is your own unmerged
+  PR branch:** amending it and pushing with `git push --force-with-lease` is allowed — and is what the
+  docs landing gate requires when a commit is missing its worklog line, because that fix belongs in the
+  same commit rather than a follow-up. Never a bare `--force`, and never once someone else holds the
+  branch.
 - **NEVER** run `pnpm db:push` (`drizzle-kit push`). It diffs against the live DB and can drop columns.
   This database is the **shared Postgres** — the `nexalog` schema sits beside other apps'
   schemas, so a destructive command here is not contained to this project.
@@ -600,16 +604,43 @@ Everything in this file is outer-layer work. The ORM, the driver, and the schema
 - This repository runs a **mixed, hand-numbered migration chain**: `drizzle/*.sql` (hand-numbered `0001_phase11_capture_sources.sql` … `0008_backfill_bookmarked_at.sql` and beyond — the numbering has collided before, e.g. two `0008_*.sql` files) plus `lib/db/migrations/0001_capture_lifecycle.sql`. There is **no `drizzle/meta/` directory**, so drizzle-kit keeps no journal or snapshot of what has applied. Treat the chain honestly as hand-numbered: check the existing numbers in both directories before adding a migration, and never reuse a number.
 - Every new table, column, index, constraint, or enum value requires a migration file in the same change. A schema edit with no migration file alongside it is an incomplete change.
 
+## This repository runs against a SHARED database — read this before any schema change
+
+The rules above assume a repository that owns its database and its migration history. **This one does
+not.** The `nexalog` schema sits in a Postgres instance shared with sibling apps, and the migration
+journal in that database belongs to a sibling: `pushd.drizzle.__drizzle_migrations` carries Pushd's
+own history. Verified 2026-09-27 — the hashes in that journal match Pushd's migration chain and
+**none** match this repository's.
+
+Four rules above therefore have a documented, deliberate exception here:
+
+- **Never run `pnpm db:migrate` or `pnpm db:generate` against this database from this tree.** An
+  applier run from here writes this repository's bookkeeping into a journal another app owns, and a
+  generate run diffs `schema.ts` against a live database whose other schemas are not ours to change.
+  `db:push` remains banned outright for the reasons below.
+- **Apply schema changes by hand, scoped to the `nexalog` schema only** — reviewed, idempotent SQL
+  executed through a parameterized `psql` session against `nexalog.*`. This is the single exception to
+  "never hand-apply migration SQL". Scope every statement to `nexalog`; never touch `public`, `auth`,
+  or another product's schema, and never alter a migration journal you do not own.
+- **Still land the migration file.** A hand-applied change lands its hand-numbered, idempotent
+  migration file in the same change, so the chain remains an honest record of what was applied. The
+  file is the *record*; it is not the applier.
+- **A human approves every change to the shared database before it is applied.** A standing guardrail,
+  not waived for small changes.
+
+Verification is unchanged and non-negotiable: query the system catalog or select the new column and
+state what you saw. "The command printed OK" is not verification.
+
 ## Migration generation
 
 - **Generate migrations with `pnpm db:generate` (`drizzle-kit generate`); never hand-write a migration file from scratch.** Because `drizzle/meta/` does not exist, drizzle-kit has no journal of the legacy hand-numbered chain: a generate run can re-emit SQL for changes that already applied, or start a fresh journal that disagrees with the existing files. Always diff the generated SQL against the existing `drizzle/*.sql` chain before keeping it, and review all generated SQL before it reaches production.
-- Never hand-apply migration SQL with an ad-hoc `psql` session; migrations land through the toolchain's applier only.
+- Never hand-apply migration SQL with an ad-hoc `psql` session; migrations land through the toolchain's applier only — **except in this repository, where the shared-database section above makes a reviewed, `nexalog`-scoped hand-apply the only sanctioned path.** "Reviewed and scoped" is the whole of the exception; an unreviewed ad-hoc session is still forbidden.
 - Make migrations idempotent — `IF NOT EXISTS` on creates, `IF EXISTS` on drops. A migration may be re-run against a partially-migrated database during a retry or a rollback-and-replay; a non-idempotent one fails the second time and blocks the deploy. If the toolchain has an auto-patch step for this, run it after any manual edit to a migration.
 - Migrations are forward-only. Never edit or delete a migration that has been merged or applied anywhere but your own machine — the migrator records what it applied, and rewriting history makes its record a lie. Fix a bad migration with a new migration.
 
 ## Apply, then verify
 
-- After generating, apply with `pnpm db:migrate` (`drizzle-kit migrate`) — the non-interactive, forward-only applier. `pnpm db:push` (`drizzle-kit push`) is the banned interactive sync (see below), not an applier. Because the legacy hand-numbered chain has no drizzle journal, `db:migrate` may not know those files applied — the verification step below is what closes that gap.
+- After generating, apply with `pnpm db:migrate` (`drizzle-kit migrate`) — the non-interactive, forward-only applier. `pnpm db:push` (`drizzle-kit push`) is the banned interactive sync (see below), not an applier. Because the legacy hand-numbered chain has no drizzle journal, `db:migrate` may not know those files applied — the verification step below is what closes that gap. **In this repository the applier is never run at all** (see the shared-database section): the reviewed SQL is applied by hand against `nexalog.*`, and the verification step below is what carries the whole burden of proof.
 - **Verify the migration actually landed by querying the database directly** — inspect the system catalog (e.g. `information_schema.columns`) or select the new column. Do not trust the CLI's success output alone; a migrator can report success for a file it skipped, and the failure then surfaces as a production error instead of a local one.
 - State the verification in your report: which object you queried and what you saw. "The command printed OK" is not verification.
 

@@ -27,6 +27,16 @@
 > pure `packages/core` slice, while the migration/adapter/route slice is held on the `nexalog_v2`
 > provenance question (design §5 / ADR question 5), which a read-only production inspection is
 > closing. Phase 5 remains operator-gated.
+>
+> **AMENDED 2026-09-27 — sub-projects are in scope.** The operator directed hierarchy support
+> (project → sub-project, **two levels**) before Phase 3 build; the decision record is
+> **Amendment A1 appended to [`adr/0001-nexalog-projects.md`](adr/0001-nexalog-projects.md)**
+> (`parent_id` self-reference on the live `nexalog.projects` table, a batched cycle/depth guard on
+> the write path, no cascade on lifecycle, a computed — never written-back — living-doc rollup, an
+> additive manual-`psql` DDL script, a two-level tree UI, and the flat-37 Claude-export import
+> mapping). ADR-0001's header, which had contradicted its own approved body, is corrected in the
+> same change. The supersession note above still stands for everything **except** A1: A1 is live
+> and binding.
 
 **Goal:** Build a first-class Nexalog **Project** — a reference-based container that groups existing notes/bookmarks, carries a living doc + a Plexo-executed brainstorm Work thread, and a lifecycle state — without copying any unit, modifying Plexo Core, or running local AI.
 
