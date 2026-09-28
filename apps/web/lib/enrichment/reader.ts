@@ -21,7 +21,7 @@
 
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
-import { and, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { fetchHtml, urlHostname } from "./fetch-html";
 import { awaitHost } from "./host-limiter";
@@ -77,6 +77,13 @@ interface Row {
 }
 
 const STALE_AFTER_DAYS = 60;
+/**
+ * A row left in `extracting` for longer than this is a dead worker's lock, not
+ * a live one: the HTML fetch is capped at 10 s and the pass is synchronous
+ * within `extractReader`, so nothing legitimately holds the lock for minutes.
+ * 15 min leaves room for a slow fetch plus the per-host politeness wait.
+ */
+const STALE_LOCK_MS = 15 * 60 * 1000;
 
 export async function extractReader(
   captureId: string,
@@ -123,18 +130,36 @@ export async function extractReader(
     }
   }
 
-  // Lock.
+  // Lock. `skipped` rows are admitted on purpose: a row is marked `skipped`
+  // when it is a non-URL or a homepage/social/video kind (and importers write
+  // it by default), but a later reclassification can make it readable — and
+  // until this fix `skipped` was absent here, so such a row could never be
+  // re-extracted at all (~309 search-visible rows were stranded in that state).
+  // A stale `extracting` row is reclaimed too: the fetch has a 10 s timeout, so
+  // an `extracting` row older than the staleness window is a dead process's
+  // lock, not another worker holding it (20 rows were stuck that way).
+  const staleLockCutoff = new Date(Date.now() - STALE_LOCK_MS);
   const lock = await db
     .update(schema.captureSources)
     .set({ readerState: "extracting" })
     .where(
       and(
         eq(schema.captureSources.id, captureId),
-        inArray(schema.captureSources.readerState, [
-          "pending",
-          "failed",
-          "ready",
-        ]),
+        or(
+          inArray(schema.captureSources.readerState, [
+            "pending",
+            "failed",
+            "ready",
+            "skipped",
+          ]),
+          and(
+            eq(schema.captureSources.readerState, "extracting"),
+            or(
+              isNull(schema.captureSources.readerFetchedAt),
+              lt(schema.captureSources.readerFetchedAt, staleLockCutoff),
+            ),
+          ),
+        ),
       ),
     )
     .returning({ id: schema.captureSources.id });
