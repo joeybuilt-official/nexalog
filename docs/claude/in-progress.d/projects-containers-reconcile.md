@@ -55,3 +55,33 @@ V1 remnants stays inside it.
 **Next step:** run the read-only `nexalog_v2` inspection to close Q5 (it is the same unknown as the
 exit door's Q5), then start Phase 3 on the pure `packages/core` slice — design `§10` phasing, ship
 gate `pnpm typecheck` + `pnpm depcruise` + `pnpm test` + `pnpm build` all green.
+
+---
+
+## 2026-09-27 — AMENDMENT A1: sub-projects are in scope (operator directive)
+
+The operator directed hierarchy support before Phase 3 build: **project → sub-project, two levels**.
+The decision record is **Amendment A1 appended to `docs/claude/platform/projects/adr/0001-nexalog-projects.md`**
+(§A1.1–A1.12), with matching edits to `design.md` (§3.1 note, §3.2, §3.5, §7, §8, §11), `plan.md`
+(banner) and this fragment. Locked by the operator: **representation = `parent_id` self-reference**
+(one parent, strict tree; reference-based multi-parent via `project_items.item_kind='project'`
+recorded as the rejected alternative), **depth = two levels, policy-enforced in the validated write
+path** (never a trigger, never a CHECK — a CHECK cannot see another row).
+
+Settled in A1: cycle prevention as one batched guard (R1–R5, including a `WITH RECURSIVE` ancestor
+walk, covered by a test) following the `filterOwnedRefs` pattern; lifecycle = **no cascade** —
+children keep their state, the UI badges and offers an explicit bulk archive, and an archived parent
+is still rendered for any rendered child; living-doc rollup = **computed, never written back** — the
+digest value object gains `subProjects`/`parent` and the port's methods do not change; DDL = additive,
+idempotent, **manual `psql` only** (`parent_id` + self-FK `ON DELETE SET NULL` + index + optional
+`import_ref` unique), with no migration file and no `db:push`/`db:migrate`; UI = a two-level tree in
+the existing authed shell; import = the flat 37 land as 35 roots + 1 synthesized `draft` parent + 2
+`//`-derived children, with **inferred structure routed through `project_candidates`** for review
+while the mechanical mapping imports directly.
+
+Also corrected in the same change: ADR-0001's header read "PROPOSED — awaiting operator approval"
+while its own body, `plan.md` and `checklist.md` recorded the gate as passed 2026-06-12; the header
+now agrees with the body, and the disagreement is recorded (A1.10 Finding 1). A1.10 Finding 3 records
+the ADR-0001↔ADR-0018 supersession and carries A1 into the brain-page placement as
+`parent: projects/<slug>` + `parent_slug`. **Nothing shipped: docs only — no code, no migration file,
+no DB command, no deploy.**
