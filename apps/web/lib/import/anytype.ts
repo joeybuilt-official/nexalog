@@ -367,6 +367,109 @@ export function mapAnytypeType(rawType: string | null): AnytypeDisposition {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
+// Email addresses in a title — a person's address must never become a filename
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Operator decision (2026-09-27): **keep the content, but no email address may become a filename.**
+ * A slug is searchable and it is in the URL, so an address that lands in one is published.
+ *
+ * AnyType's own namer is what makes this concrete: `slug.Make` DELETES `@` and turns `.` into `-`,
+ * so an address typed into an object's name reaches this importer in one of two shapes —
+ *
+ *   name@example.com                  the literal address (when the object name survives verbatim)
+ *   nameatexample-com                 the collapsed form (what the export FILENAME carries)
+ *
+ * Both are detected here and replaced by a neutral token derived from the address itself,
+ * `sender-<hash>`, so:
+ *
+ *   • two different senders can never collapse onto one slug (the token is per-address),
+ *   • re-running the import derives byte-identical slugs (the hash is stable), and
+ *   • the filename no longer contains the address.
+ *
+ * Detection is deliberately asymmetric: the literal form matches anywhere and on any TLD (an
+ * address is unambiguous), while the collapsed form requires a recognized public suffix so ordinary
+ * prose cannot be mangled. Over-matching costs an ugly slug; under-matching publishes an address.
+ *
+ * Honest limit: the token is a *pseudonym*, not removal — the address is still in the page's content
+ * (the operator chose `keep the content`), and a short hash of a well-known address is guessable.
+ * This stops the address becoming a filename; it does not un-publish the text.
+ */
+
+/** A literal address, anywhere in a title. */
+const EMAIL_LITERAL_RE =
+  /[a-z0-9._%+'-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}/gi;
+
+/** Public suffixes that make `<local>at<domain>-<suffix>` decisively email-shaped, not prose. */
+const PUBLIC_SUFFIXES = [
+  "com", "net", "org", "edu", "gov", "mil", "int", "info", "biz", "name", "pro", "mobi",
+  "io", "co", "us", "uk", "ca", "au", "nz", "de", "fr", "nl", "be", "ch", "at", "it", "es",
+  "se", "no", "fi", "dk", "pl", "ru", "cn", "jp", "kr", "in", "br", "mx", "ar", "za",
+  "dev", "app", "xyz", "online", "site", "tech", "store", "email", "cloud", "me", "tv", "cc",
+];
+
+/**
+ * The collapsed form: `<local>` + `at` + `<domain labels>` + `-` + `<suffix>`.
+ *
+ * The local part deliberately excludes `-`: AnyType writes a collapsed address straight into the
+ * FILENAME and the filename can end up embedded in a longer title, so allowing `-` in the local
+ * part would let the match swallow a leading word (`re-<address>` → one token hashed over `re-…`).
+ * Excluding it keeps the token a function of the address alone, and the local part stays greedy so
+ * the engine binds the LAST `at` — the right one for an address whose local part itself
+ * contains `at`.
+ */
+const EMAIL_COLLAPSED_RE = new RegExp(
+  `\\b[a-z0-9][a-z0-9._%+]{0,63}at[a-z0-9][a-z0-9-]{0,62}-(?:${PUBLIC_SUFFIXES.join("|")})\\b`,
+  "gi",
+);
+
+/** The neutral token prefix. Deliberately not the address, not `redacted`, and not a domain word. */
+export const SENDER_TOKEN_PREFIX = "sender";
+
+/**
+ * Undo `slug.Make`'s collapse so a collapse followed by its own re-read is stable:
+ * `quinntaltyatexample-com` → `quinntalty@example.com`.
+ *
+ * The collapse is lossy (a `.` in the local part became a `-`, and a `-` looks the same as a `.`),
+ * so the literal and collapsed spellings of one address can hash differently when the local part
+ * has a dot. That is the export format's information loss, not something a sanitizer can undo; what
+ * this guarantees is that each spelling is STABLE, so a re-run derives the same slug.
+ */
+export function uncollapseAddress(span: string): string {
+  const at = span.toLowerCase().lastIndexOf("at");
+  if (at <= 0) return span.toLowerCase();
+  const local = span.slice(0, at).toLowerCase();
+  const domain = span.slice(at + 2).replace(/-/g, ".").toLowerCase();
+  return domain === "" ? span.toLowerCase() : `${local}@${domain}`;
+}
+
+/**
+ * 64-bit FNV-1a over UTF-8 bytes, hex, truncated to 12 chars. Hand-rolled on purpose: this module
+ * is dependency-free and imports nothing from `node:` (it is unit-tested and must stay bundle-neutral),
+ * and a name-shortening token needs stability and dispersion, not a security property.
+ */
+export function shortHash(input: string): string {
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  for (const byte of new TextEncoder().encode(input)) {
+    hash = ((hash ^ BigInt(byte)) * prime) & mask;
+  }
+  return hash.toString(16).padStart(16, "0").slice(0, 12);
+}
+
+/** The stable, collision-free stand-in for one address. */
+export function senderToken(address: string): string {
+  return `${SENDER_TOKEN_PREFIX}-${shortHash(address.trim().toLowerCase())}`;
+}
+
+/** Replace every email-shaped token in a title. Total: returns the input unchanged when none match. */
+export function redactEmailTokens(title: string): string {
+  const literalRedacted = title.replace(EMAIL_LITERAL_RE, (match) => senderToken(match));
+  return literalRedacted.replace(EMAIL_COLLAPSED_RE, (match) => senderToken(uncollapseAddress(match)));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
 // Slugs — validated against the app's own Slug.of, never sanitized silently
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -390,6 +493,17 @@ export function slugify(input: string): string {
 }
 
 /**
+ * Title → slug segment, **with every email-shaped token neutralized first**.
+ *
+ * This is the only sanctioned way to turn a title into a filename: `slugify` alone will happily
+ * publish `nameatexample-com` (see the email section above). Nothing that plans a path may call
+ * `slugify` on a raw title directly.
+ */
+export function slugifyTitle(title: string): string {
+  return slugify(redactEmailTokens(title));
+}
+
+/**
  * A slug is valid iff the app's own `Slug.of` accepts it — the same rule the inbox walk
  * enforces (`packages/core/src/domain/slug.ts`), so a planned path can never be the invalid
  * filename that turns a brain-repo read into an outage.
@@ -403,12 +517,16 @@ export function isValidSlugPath(path: string): boolean {
   }
 }
 
-/** Title → slug, falling back to the object id (ids are base32-ish lowercase alphanumerics). */
-export function deriveSlug(title: string, id: string): string | null {
-  const fromTitle = slugify(title);
-  if (fromTitle !== "") return fromTitle;
+/** Titles slugify to nothing often enough (an emoji-only or non-Latin name) to need a stand-in. */
+function deriveIdSlug(id: string): string | null {
   const fromId = slugify(id);
   return fromId === "" ? null : `anytype-${fromId.slice(0, 16)}`;
+}
+
+/** Title → slug, falling back to the object id (ids are base32-ish lowercase alphanumerics). */
+export function deriveSlug(title: string, id: string): string | null {
+  const fromTitle = slugifyTitle(title);
+  return fromTitle !== "" ? fromTitle : deriveIdSlug(id);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -486,12 +604,84 @@ export function pickUrl(object: AnytypeObject): string | null {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
+// Attachments — the export's `files/` tree
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * An AnyType attachment reference exactly as the exporter writes it: a path under `files/`.
+ * The exporter does NOT always give a file an extension (`files/daily-journal` is a PNG), so
+ * nothing here may branch on the extension — a ref is a ref.
+ */
+const FILE_REF_RE = /^files\/[^\s/]+$/;
+
+/** `![Title](files/x.png)` and `[Title](files/x.pdf)`, with an optional markdown link title. */
+const BODY_FILE_REF_RE = /\]\(\s*(files\/[^\s)]+)(?:\s+["'][^"']*["'])?\s*\)/g;
+
+/** Every whole-value `files/…` reference in the parsed frontmatter (relation links), deduped. */
+export function collectFrontmatterFileRefs(frontmatter: Record<string, unknown>): string[] {
+  const found: string[] = [];
+  const walk = (value: unknown): void => {
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (FILE_REF_RE.test(trimmed)) found.push(trimmed);
+      return;
+    }
+    if (Array.isArray(value)) for (const item of value) walk(item);
+  };
+  for (const value of Object.values(frontmatter)) walk(value);
+  return [...new Set(found)];
+}
+
+/** Every `](files/…)` reference in a body, in document order, deduped. */
+export function collectBodyFileRefs(body: string): string[] {
+  const found: string[] = [];
+  for (const match of body.matchAll(BODY_FILE_REF_RE)) found.push(match[1]);
+  return [...new Set(found)];
+}
+
+/** The exporter's own namer is already slug-safe, but a ref must never be able to escape the dir. */
+function sanitizeAttachmentName(name: string): string {
+  const cleaned = name.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[.-]+/, "");
+  return cleaned === "" ? "attachment" : cleaned;
+}
+
+/** `attachments/YYYY/MM` — the brain repo's own media convention (`FsGitBrainStore.saveAttachment`). */
+export function attachmentShard(date: Date | null, fallback: Date): string {
+  const shardDate = date ?? fallback;
+  const month = String(shardDate.getUTCMonth() + 1).padStart(2, "0");
+  return `${shardDate.getUTCFullYear()}/${month}`;
+}
+
+/**
+ * `<brain-repo>/attachments/YYYY/MM/<page slug>-<original file name>`.
+ *
+ * The page slug is part of the name because `attachments/` is FLAT per month: two pages that both
+ * embed `files/image.png` must not overwrite each other's copy, and the same page re-imported must
+ * compute the same path (that is what makes a second run a no-op rather than a second copy).
+ */
+export function attachmentPath(shard: string, slug: string, ref: string): string {
+  const name = sanitizeAttachmentName(ref.replace(/^files\//, ""));
+  return `attachments/${shard}/${slug}-${name}`;
+}
+
+/** Rewrite `](files/…)` targets to their copied location; refs with no destination are left alone. */
+export function rewriteBodyFileRefs(body: string, destByRef: ReadonlyMap<string, string>): string {
+  return body.replace(BODY_FILE_REF_RE, (whole, ref: string) => {
+    const dest = destByRef.get(ref);
+    return dest === undefined ? whole : whole.replace(ref, dest);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
 // Plan
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
 export type CaptureAction = "INSERT" | "SKIP-duplicate";
 export type PageAction = "WRITE" | "SKIP-duplicate";
 export type SkipAction = "SKIP-unsupported";
+export type MediaAction = "COPY" | "SKIP-present" | "MISSING" | "SKIP-no-destination";
+/** Where the object referenced the file: the two are not mutually exclusive. */
+export type MediaRefKind = "body" | "frontmatter" | "body+frontmatter";
 
 export interface PlannedCapture {
   target: "capture_sources";
@@ -521,9 +711,32 @@ export interface PlannedPage {
   relPath: string;
   pageType: PageType;
   title: string;
+  /** The body as it will be written — every `files/…` ref already pointing at its copied location. */
   body: string;
-  frontmatter: Record<string, string>;
+  /** Page frontmatter; `attachments` is a list of repo-relative copied media paths when present. */
+  frontmatter: Record<string, string | string[]>;
+  /** Repo-relative copied media paths this page references, in first-reference order. */
+  attachments: string[];
+  /** How many refs this run would rewrite. Always 0 for a SKIP-duplicate page — nothing is written. */
+  refsRewritten: number;
   destination: string;
+}
+
+/** One attachment reference and what the import does about it. */
+export interface PlannedMedia {
+  /** The copied path, or `—` when there is nothing to copy to. */
+  target: string;
+  action: MediaAction;
+  reason: string;
+  sourceFileName: string;
+  anytypeId: string | null;
+  /** The reference exactly as the export spells it, e.g. `files/daily-journal`. */
+  ref: string;
+  refKind: MediaRefKind;
+  /** The brain page that references it, or `null` when the object has no page destination. */
+  ownerRelPath: string | null;
+  /** Repo-relative destination, or `null` when there is none. */
+  destRelPath: string | null;
 }
 
 export interface PlannedSkip {
@@ -540,6 +753,12 @@ export interface AnytypePlan {
   captures: PlannedCapture[];
   pages: PlannedPage[];
   skips: PlannedSkip[];
+  /**
+   * Every attachment reference in the export and its disposition. Built for ALL objects, including
+   * the ones with no page destination, so the report accounts for every byte in `files/` instead of
+   * quietly dropping the ones a Bookmark or a skipped Task was holding.
+   */
+  media: PlannedMedia[];
   /** Parsed objects per AnyType type label (unsupported ones included). */
   typeCounts: Array<{ rawType: string; count: number }>;
   warnings: string[];
@@ -550,6 +769,10 @@ export interface PlanContext {
   existingCaptureUrls: ReadonlySet<string>;
   /** Repo-relative page path → the `anytype_id` in that file (`null` when it has none). */
   existingPages: ReadonlyMap<string, string | null>;
+  /** Refs (`files/…`) that actually exist in the export's `files/` directory. */
+  availableAttachments: ReadonlySet<string>;
+  /** Repo-relative attachment paths already on disk in the brain repo. */
+  existingAttachments: ReadonlySet<string>;
   /** Timestamp written to `imported_at` and to page frontmatter. */
   importedAt: Date;
   /** Import source string recorded in the provenance columns. */
@@ -564,6 +787,7 @@ export function buildPlan(
   const captures: PlannedCapture[] = [];
   const pages: PlannedPage[] = [];
   const skips: PlannedSkip[] = [];
+  const media: PlannedMedia[] = [];
   const warnings: string[] = [];
   const counts = new Map<string, number>();
 
@@ -571,6 +795,9 @@ export function buildPlan(
   const urlOwner = new Map<string, { file: string; bookmarkedAt: Date | null }>();
   // Slug collisions within the export: first object wins the bare slug, later ones get a suffix.
   const pageSlugOwner = new Map<string, string>();
+  // Objects that became a brain page. Their attachment refs are planned by planPage, which is the
+  // only place that knows the final slug; everything else is planned by the detached pass below.
+  const pageObjects = new Set<AnytypeObject>();
 
   for (const object of objects) {
     const typeLabel = object.rawType ?? "(unknown)";
@@ -610,6 +837,8 @@ export function buildPlan(
         ctx,
         pages,
         skips,
+        media,
+        pageObjects,
         pageSlugOwner,
       );
       continue;
@@ -623,10 +852,19 @@ export function buildPlan(
     );
   }
 
+  // Attachments held by objects that produced no brain page (bookmarks → capture_sources rows,
+  // unsupported types, unusable files). Their binaries are reported rather than copied: there is no
+  // page file to rewrite a reference in, and inventing one would be a third destination.
+  for (const object of objects) {
+    if (pageObjects.has(object)) continue;
+    planDetachedMedia(object, ctx, media);
+  }
+
   return {
     captures,
     pages,
     skips,
+    media,
     typeCounts: [...counts.entries()]
       .map(([rawType, count]) => ({ rawType, count }))
       .sort((a, b) => (a.rawType < b.rawType ? -1 : a.rawType > b.rawType ? 1 : 0)),
@@ -751,8 +989,13 @@ function planPage(
   ctx: PlanContext,
   pages: PlannedPage[],
   skips: PlannedSkip[],
+  media: PlannedMedia[],
+  pageObjects: Set<AnytypeObject>,
   pageSlugOwner: Map<string, string>,
 ): void {
+  // `deriveSlug` runs the email sanitizer: a sender's address in the object name must not become
+  // the filename, and the same title must yield the same slug on every run.
+  const titleSlug = slugifyTitle(object.title);
   let slug = deriveSlug(object.title, id);
   if (slug === null) {
     skips.push(
@@ -771,7 +1014,7 @@ function planPage(
     collisionNote = ` (slug collision with ${owner} within this export — suffixed to avoid clobbering)`;
     let n = 2;
     while (pageSlugOwner.has(relPath)) {
-      slug = `${slugify(object.title) || "page"}-${suffix}-${n}`;
+      slug = `${titleSlug || "page"}-${suffix}-${n}`;
       relPath = `${dir}/${slug}.md`;
       n += 1;
     }
@@ -785,10 +1028,45 @@ function planPage(
     return;
   }
   pageSlugOwner.set(relPath, id);
+  pageObjects.add(object);
+
+  // ── attachments ─────────────────────────────────────────────────────────────────────────────
+  // Only now is the slug final, so `attachments/YYYY/MM/<slug>-<name>` is stable. The shard comes
+  // from the object's own date so it does not slide between runs.
+  const bodyRefs = collectBodyFileRefs(object.body);
+  const frontmatterRefs = collectFrontmatterFileRefs(object.frontmatter);
+  const refs = [...new Set([...frontmatterRefs, ...bodyRefs])];
+  const shard = attachmentShard(
+    pickCreatedAt(object.frontmatter) ?? pickUpdatedAt(object.frontmatter),
+    ctx.importedAt,
+  );
+  const destByRef = new Map<string, string>();
+  const attachments: string[] = [];
+  for (const ref of refs) {
+    const dest = attachmentPath(shard, slug, ref);
+    const inBody = bodyRefs.includes(ref);
+    const inFrontmatter = frontmatterRefs.includes(ref);
+    const decision = decidePageMedia(ref, dest, ctx);
+    media.push({
+      ...decision,
+      sourceFileName: object.sourceFileName,
+      anytypeId: id,
+      ref,
+      refKind:
+        inBody && inFrontmatter ? "body+frontmatter" : inBody ? "body" : "frontmatter",
+      ownerRelPath: relPath,
+      destRelPath: dest,
+    });
+    if (decision.action === "COPY" || decision.action === "SKIP-present") {
+      destByRef.set(ref, dest);
+      attachments.push(dest);
+    }
+  }
+  const rewrittenBody = rewriteBodyFileRefs(object.body, destByRef);
 
   const createdAt = pickCreatedAt(object.frontmatter);
   const updatedAt = pickUpdatedAt(object.frontmatter);
-  const frontmatter: Record<string, string> = {
+  const frontmatter: Record<string, string | string[]> = {
     type: pageType,
     title: object.title,
     anytype_id: id,
@@ -798,6 +1076,10 @@ function planPage(
   if (object.rawType) frontmatter.anytype_type = object.rawType;
   if (createdAt) frontmatter.anytype_created_at = createdAt.toISOString();
   if (updatedAt) frontmatter.anytype_updated_at = updatedAt.toISOString();
+  // AnyType's `Image:` / `Picture:` / `Outgoing links:` properties are not part of the page
+  // contract, so a frontmatter-only reference would otherwise be lost entirely. The rewritten
+  // paths are carried as one additive `attachments:` list (the same key a capture uses).
+  if (attachments.length > 0) frontmatter.attachments = attachments;
 
   const base = {
     target: relPath,
@@ -808,17 +1090,21 @@ function planPage(
     relPath,
     pageType,
     title: object.title,
-    body: object.body,
+    body: rewrittenBody,
     frontmatter,
+    attachments,
     destination: relPath,
   };
+  const attachmentNote =
+    attachments.length > 0 ? ` · ${attachments.length} attachment(s) under attachments/` : "";
 
   const existingId = ctx.existingPages.get(relPath);
   if (existingId === undefined) {
     pages.push({
       ...base,
       action: "WRITE",
-      reason: `new brain page (type=${pageType})${collisionNote}`,
+      reason: `new brain page (type=${pageType})${collisionNote}${attachmentNote}`,
+      refsRewritten: attachments.length,
     });
     return;
   }
@@ -826,7 +1112,12 @@ function planPage(
     pages.push({
       ...base,
       action: "SKIP-duplicate",
-      reason: "brain page already imported from this AnyType object (anytype_id matches)",
+      reason:
+        "brain page already imported from this AnyType object (anytype_id matches)" +
+        (attachments.length > 0
+          ? ` — ${attachments.length} attachment(s) left untouched (nothing is rewritten)`
+          : ""),
+      refsRewritten: 0,
     });
     return;
   }
@@ -836,7 +1127,77 @@ function planPage(
     reason: `destination exists and was not written by this importer (anytype_id: ${
       existingId ?? "absent"
     }) — refusing to overwrite${collisionNote}`,
+    refsRewritten: 0,
   });
+}
+
+/**
+ * What to do about one attachment reference on an object that becomes a brain page.
+ * `MISSING` is checked first: a dangling reference must be REPORTED, never invented, and that is
+ * true whichever destination the object has.
+ */
+function decidePageMedia(
+  ref: string,
+  dest: string,
+  ctx: PlanContext,
+): { target: string; action: MediaAction; reason: string } {
+  if (!ctx.availableAttachments.has(ref)) {
+    return {
+      target: "—",
+      action: "MISSING",
+      reason: `no "${ref}" in the export's files/ directory — reported, not invented`,
+    };
+  }
+  if (ctx.existingAttachments.has(dest)) {
+    return {
+      target: dest,
+      action: "SKIP-present",
+      reason: `already copied to ${dest} — not copied again (idempotent re-run)`,
+    };
+  }
+  return {
+    target: dest,
+    action: "COPY",
+    reason: `copy ${ref} → ${dest}`,
+  };
+}
+
+/** Attachments on an object that has no brain page: report them, do not copy them. */
+function planDetachedMedia(
+  object: AnytypeObject,
+  ctx: PlanContext,
+  media: PlannedMedia[],
+): void {
+  const bodyRefs = collectBodyFileRefs(object.body);
+  const frontmatterRefs = collectFrontmatterFileRefs(object.frontmatter);
+  for (const ref of [...new Set([...frontmatterRefs, ...bodyRefs])]) {
+    const inBody = bodyRefs.includes(ref);
+    const inFrontmatter = frontmatterRefs.includes(ref);
+    const missing = !ctx.availableAttachments.has(ref);
+    media.push({
+      target: "—",
+      action: missing ? "MISSING" : "SKIP-no-destination",
+      reason: missing
+        ? `no "${ref}" in the export's files/ directory — reported, not invented`
+        : `${dispositionLabel(object)} — no brain page to rewrite, so the binary is not copied`,
+      sourceFileName: object.sourceFileName,
+      anytypeId: object.id,
+      ref,
+      refKind:
+        inBody && inFrontmatter ? "body+frontmatter" : inBody ? "body" : "frontmatter",
+      ownerRelPath: null,
+      destRelPath: null,
+    });
+  }
+}
+
+/** Why an object produced no page — the attachment report says this instead of inventing a path. */
+function dispositionLabel(object: AnytypeObject): string {
+  if (!object.frontmatterFound) return "file has no AnyType frontmatter block (skipped)";
+  if (!object.id) return "frontmatter has no id (skipped)";
+  const mapped = mapAnytypeType(object.rawType);
+  if (mapped.disposition === "capture") return "imports as a capture_sources row";
+  return `unsupported AnyType type "${object.rawType ?? "(none)"}" (skipped)`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -851,9 +1212,20 @@ function planPage(
  * removes every way a title containing `:`, `#`, or a leading `-` could corrupt the block.
  * A body whose first line is `---` is rejected upstream by the parser (frontmatter split).
  */
-export function serializePageFile(frontmatter: Record<string, string>, body: string): string {
-  const lines = Object.entries(frontmatter).map(
-    ([key, value]) => `${key}: ${JSON.stringify(value)}`,
-  );
+export function serializePageFile(
+  frontmatter: Record<string, string | string[]>,
+  body: string,
+): string {
+  const lines: string[] = [];
+  for (const [key, value] of Object.entries(frontmatter)) {
+    if (Array.isArray(value)) {
+      // Block sequence, not a JSON flow list: the repo's own frontmatter reader (js-yaml in the
+      // adapters, the subset parser here) both read it, and a human reading the file can too.
+      lines.push(`${key}:`);
+      for (const item of value) lines.push(`  - ${JSON.stringify(item)}`);
+    } else {
+      lines.push(`${key}: ${JSON.stringify(value)}`);
+    }
+  }
   return ["---", lines.join("\n"), "---", body.trimEnd()].join("\n") + "\n";
 }

@@ -27,8 +27,8 @@ shipped to Google Play by Pushd (`/.pushd.yaml`). Android only.
   when the worker finishes.
 - What each tag does:
   - `v*` (e.g. `v1.0.1`) → **android-release**: `flutter pub get` → build signed
-    APK → **emails** it to 94700316+dustin-olenslager@users.noreply.github.com. No Play publish. Use to
-    hand off a test build.
+    APK → **emails** it to the account's GitHub noreply address (configured on the build
+    worker — it is not read from this repo). No Play publish. Use to hand off a test build.
 - `release-v*` (e.g. `release-v1.0.1`) → **android-publish**: same build, plus
   pushes the AAB to the Play **internal** track as a draft.
 

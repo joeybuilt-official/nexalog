@@ -21,6 +21,20 @@
  *   Project                 →  <brain-repo>/projects/<slug>.md  (type: project)
  *   anything else           →  SKIP, with the reason printed. No third path is invented.
  *
+ * Attachments
+ * -----------
+ * Every `files/…` reference an object holds — in the body (`![x](files/x.png)`) or in its
+ * properties (AnyType's `Image:` / `Picture:` / `Outgoing links:` relations) — is copied into the
+ * brain repo at `attachments/YYYY/MM/<page slug>-<original name>`, and the reference is rewritten
+ * to that path (the body inline, the properties via one additive `attachments:` list, because the
+ * page frontmatter contract has no AnyType property names in it). The exporter does not always give
+ * a file an extension, so nothing branches on one.
+ *
+ * A reference whose target is not in the export's `files/` is REPORTED as MISSING and left exactly
+ * as it was — a dangling link is never invented. A reference held by an object with no brain page
+ * (a Bookmark → `capture_sources` row, or an unsupported type) is reported as having no
+ * destination, not copied: there would be no file to rewrite.
+ *
  * Why those two shapes: `capture_sources` is the only table carrying the import-provenance
  * columns (`bookmarked_at` / `imported_at` / `import_source` / `source_payload` — schema.ts:147)
  * and it is a live surface (`GET /api/bookmarks`, the `/api/search` captures branch); long-form
@@ -30,12 +44,13 @@
  *
  * Guarantees
  * ----------
- *  - `--dry-run` performs ZERO writes: no INSERT, no `writeFile`, no `git`. It prints the
- *    resolved tenant, per-type counts, and a per-item plan with the exact destination and reason.
+ *  - `--dry-run` performs ZERO writes: no INSERT, no `writeFile`, no file copy, no `git`. It prints
+ *    the resolved tenant, per-type counts, and a per-item plan with the exact destination and reason.
  *  - Re-running is a no-op: URLs are normalized + deduped, checked against the workspace's
- *    existing rows before insert, and pages are keyed on the frontmatter `anytype_id` already
+ *    existing rows before insert, pages are keyed on the frontmatter `anytype_id` already
  *    present in the destination file (`capture_sources` has NO unique constraint on `url`, so
- *    in-code dedupe is the only guarantee there is).
+ *    in-code dedupe is the only guarantee there is), and an attachment whose destination file
+ *    already exists is never copied again.
  *  - **This script never shells out to git.** It writes files into the brain repo and stops.
  *    `FsGitBrainStore` is deliberately NOT used: its `commit()` runs `git add -A`
  *    (`fs-git-brain-store.ts:224`), which would sweep another writer's uncommitted work into
@@ -44,21 +59,24 @@
  * Usage (cwd must be `apps/web`; `tsx` is an apps/web devDependency):
  *
  *   pnpm tsx scripts/reimport-anytype.ts <path/to/Anytype.YYYYMMDD.HHMMSS.nn | parent dir> \
- *     [--workspace=<uuid>] [--user-id=<id>] [--dry-run] [--limit=<n>] \
+ *     [--workspace=<uuid>] [--user-id=<id>] [--dry-run] [--limit=<n>] [--pages-only] \
  *     [--brain-repo=<path>] [--enrichment=pending|skipped] [--verbose]
  *
  *   --dry-run     plan only, zero writes (run this first, always)
  *   --limit=<n>   plan/import only the first <n> objects (deterministic file-name order)
  *   --workspace   target workspace; with --user-id it bypasses the tenant heuristic
  *   --user-id     target user
- *   --brain-repo  brain repo root for page writes (default $BRAIN_REPO)
+ *   --brain-repo  brain repo root for page + attachment writes (default $BRAIN_REPO)
+ *   --pages-only  import brain pages and attachments ONLY; never touch capture_sources, and never
+ *                 open a database connection (so it needs no DATABASE_URL). Useful for landing the
+ *                 markdown half first, and for proving re-run safety without a DB.
  *   --enrichment  new-row enrichment states: `pending` (default — identical to an in-app
  *                 bookmark capture, and it pre-loads every enrichment queue) or `skipped`
  *                 (keeps a bulk import out of those queues entirely)
  *   --verbose     print each item's full column/file detail, not just the one-line plan
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
@@ -70,7 +88,9 @@ import {
   splitAnytypeFrontmatter,
   type AnytypeObject,
   type AnytypePlan,
+  type MediaAction,
   type PlannedCapture,
+  type PlannedMedia,
   type PlannedPage,
   type PlannedSkip,
 } from "@/lib/import/anytype";
@@ -78,7 +98,7 @@ import {
 const IMPORT_SOURCE = "anytype";
 const USAGE = `Usage:
   reimport-anytype.ts <path/to/Anytype.YYYYMMDD.HHMMSS.nn>
-    [--workspace=<uuid>] [--user-id=<id>] [--dry-run] [--limit=<n>]
+    [--workspace=<uuid>] [--user-id=<id>] [--dry-run] [--limit=<n>] [--pages-only]
     [--brain-repo=<path>] [--enrichment=pending|skipped] [--verbose]`;
 
 interface Args {
@@ -89,6 +109,7 @@ interface Args {
   limit?: number;
   brainRepo: string | null;
   enrichment: "pending" | "skipped";
+  pagesOnly: boolean;
   verbose: boolean;
   help: boolean;
 }
@@ -124,6 +145,7 @@ function parseArgs(argv: string[]): Args {
         "--limit",
         "--brain-repo",
         "--enrichment",
+        "--pages-only",
       ].some((f) => a === f || a.startsWith(`${f}=`)),
   );
   if (unknown.length > 0) throw new Error(`unknown flag(s): ${unknown.join(", ")}\n${USAGE}`);
@@ -136,6 +158,7 @@ function parseArgs(argv: string[]): Args {
     limit,
     brainRepo: value("--brain-repo") ?? null,
     enrichment: enrichmentRaw === "skipped" ? "skipped" : "pending",
+    pagesOnly: argv.includes("--pages-only"),
     verbose: argv.includes("--verbose"),
     help: argv.includes("--help"),
   };
@@ -184,8 +207,17 @@ interface LoadedExport {
   objects: AnytypeObject[];
   attachmentCount: number;
   schemaCount: number;
-  /** Object references to `files/…` that this importer does not copy (reported, not imported). */
-  attachmentRefs: string[];
+  /** The export's `files/` entries as refs (`files/<name>`) — what a reference can actually resolve to. */
+  availableAttachments: ReadonlySet<string>;
+}
+
+/** Regular files directly inside `dir`, sorted; `[]` when the directory is absent. */
+function listFiles(dir: string): string[] {
+  if (!existsSync(dir) || !statSync(dir).isDirectory()) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .sort();
 }
 
 function loadExport(root: string, limit?: number): LoadedExport {
@@ -200,20 +232,14 @@ function loadExport(root: string, limit?: number): LoadedExport {
     parseAnytypeExportFile(readFileSync(join(root, file), "utf8"), file),
   );
 
-  const countDir = (name: string) => {
-    const dir = join(root, name);
-    return existsSync(dir) && statSync(dir).isDirectory() ? readdirSync(dir).length : 0;
-  };
-  const attachmentRefs = objects
-    .flatMap((o) => [...o.body.matchAll(/\]\((files\/[^)\s]+)\)/g)].map((m) => m[1]))
-    .sort();
+  const attachmentNames = listFiles(join(root, "files"));
 
   return {
     root,
     objects,
-    attachmentCount: countDir("files"),
-    schemaCount: countDir("schemas"),
-    attachmentRefs,
+    attachmentCount: attachmentNames.length,
+    schemaCount: listFiles(join(root, "schemas")).length,
+    availableAttachments: new Set(attachmentNames.map((name) => `files/${name}`)),
   };
 }
 
@@ -239,6 +265,14 @@ interface TenantPair {
 async function resolveTenant(args: Args): Promise<Tenant> {
   if (args.workspaceId && args.userId) {
     return { workspaceId: args.workspaceId, userId: args.userId, source: "--workspace + --user-id flags" };
+  }
+  if (args.pagesOnly && !process.env.DATABASE_URL) {
+    // --pages-only never opens a connection, so no tenant is needed and none is invented.
+    return {
+      workspaceId: args.workspaceId ?? "(not used — --pages-only)",
+      userId: args.userId ?? "(not used — --pages-only)",
+      source: "--pages-only: pages + attachments only, no tenant and no database",
+    };
   }
   if (!process.env.DATABASE_URL) {
     throw new Error(
@@ -369,7 +403,10 @@ function shortId(id: string | null): string {
   return id.length <= 14 ? id : `${id.slice(0, 12)}…`;
 }
 
-function printPlan(plan: AnytypePlan, opts: { brainRepo: string | null; verbose: boolean }): void {
+function printPlan(
+  plan: AnytypePlan,
+  opts: { brainRepo: string | null; verbose: boolean; pagesOnly: boolean },
+): void {
   // Printed in export-filename order (not action order) so the plan can be diffed against `ls`
   // of the export root — the per-action totals are in the Plan block above.
   const items: Array<PlannedCapture | PlannedPage | PlannedSkip> = [
@@ -380,14 +417,25 @@ function printPlan(plan: AnytypePlan, opts: { brainRepo: string | null; verbose:
 
   console.log("");
   console.log("Plan");
-  const rows: Array<[string, number]> = [
-    ["capture_sources  INSERT", plan.captures.filter((c) => c.action === "INSERT").length],
-    ["capture_sources  SKIP-duplicate", plan.captures.filter((c) => c.action === "SKIP-duplicate").length],
+  const rows: Array<[string, number]> = opts.pagesOnly
+    ? []
+    : [
+        ["capture_sources  INSERT", plan.captures.filter((c) => c.action === "INSERT").length],
+        [
+          "capture_sources  SKIP-duplicate",
+          plan.captures.filter((c) => c.action === "SKIP-duplicate").length,
+        ],
+      ];
+  rows.push(
     ["brain page       WRITE", plan.pages.filter((p) => p.action === "WRITE").length],
-    ["brain page       SKIP-duplicate", plan.pages.filter((p) => p.action === "SKIP-duplicate").length],
+    [
+      "brain page       SKIP-duplicate",
+      plan.pages.filter((p) => p.action === "SKIP-duplicate").length,
+    ],
     ["(nothing)        SKIP-unsupported", plan.skips.length],
-  ];
+  );
   for (const [label, n] of rows) console.log(`  ${label.padEnd(34)} ${n}`);
+  if (opts.pagesOnly) console.log(`  ${"capture_sources".padEnd(34)} NOT PLANNED (--pages-only)`);
 
   console.log("");
   console.log(`Per-item plan (${items.length})`);
@@ -425,6 +473,58 @@ function printPlan(plan: AnytypePlan, opts: { brainRepo: string | null; verbose:
         `        body: ${p.body.split("\n").length} line(s), ${p.body.length} char(s) — written verbatim below the frontmatter`,
       );
     }
+  });
+}
+
+const MEDIA_ACTION_HINTS: Record<MediaAction, string> = {
+  COPY: "",
+  "SKIP-present": "  already in the brain repo — not copied again (idempotent re-run)",
+  "SKIP-no-destination":
+    "  the object has no brain page (bookmark → capture_sources row, or a skipped type): reported, not copied",
+  MISSING: "  no such file in the export's files/ — reported, not invented",
+};
+
+/**
+ * The attachment half of the plan. Printed separately from the object list because a reference is
+ * not an object: one object can hold several, and a reference can survive an object that produced
+ * no page at all. `SKIP-present` rows are hidden unless `--verbose` so a second run reads as the
+ * no-op it is.
+ */
+function printMedia(plan: AnytypePlan, opts: { verbose: boolean }): void {
+  const count = (action: MediaAction) => plan.media.filter((m) => m.action === action).length;
+  const rewritten = plan.pages.reduce((n, p) => n + p.refsRewritten, 0);
+
+  console.log("");
+  console.log("Attachments (files/ → <brain-repo>/attachments/YYYY/MM/<page slug>-<name>)");
+  console.log(`  ${"refs in the export".padEnd(38)} ${plan.media.length}`);
+  for (const action of ["COPY", "SKIP-present", "SKIP-no-destination", "MISSING"] as MediaAction[]) {
+    console.log(`    ${action.padEnd(22)} ${String(count(action)).padStart(3)}${MEDIA_ACTION_HINTS[action]}`);
+  }
+  console.log(`  ${"refs to rewrite (body + frontmatter)".padEnd(38)} ${rewritten}`);
+
+  const shown = plan.media
+    .filter((m) => m.action !== "SKIP-present" || opts.verbose)
+    .sort((a, b) =>
+      a.sourceFileName < b.sourceFileName
+        ? -1
+        : a.sourceFileName > b.sourceFileName
+          ? 1
+          : a.ref < b.ref
+            ? -1
+            : 1,
+    );
+  if (shown.length === 0) {
+    console.log("  (nothing to copy and nothing to rewrite — every reference is already in place)");
+    return;
+  }
+  console.log("");
+  console.log(`Per-reference plan (${shown.length} of ${plan.media.length})`);
+  shown.forEach((item, index) => {
+    console.log(`[${String(index + 1).padStart(3)}] ${item.action.padEnd(19)} ${item.ref}`);
+    console.log(`        reason: ${item.reason}`);
+    console.log(
+      `        ${item.refKind} · ${item.ownerRelPath ?? "(no page)"} · from ${item.sourceFileName}`,
+    );
   });
 }
 
@@ -495,7 +595,9 @@ async function main(): Promise<void> {
   // then honestly reported as "duplicate check skipped" instead of silently claiming INSERTs.
   let existingCaptureUrls = new Set<string>();
   let duplicateCheckNote: string;
-  if (!process.env.DATABASE_URL) {
+  if (args.pagesOnly) {
+    duplicateCheckNote = "SKIPPED — --pages-only never reads capture_sources";
+  } else if (!process.env.DATABASE_URL) {
     duplicateCheckNote = "SKIPPED — DATABASE_URL is not set (every capture is planned as INSERT)";
   } else {
     try {
@@ -509,19 +611,32 @@ async function main(): Promise<void> {
 
   const planCtx = {
     existingCaptureUrls,
+    availableAttachments: loaded.availableAttachments,
     importedAt,
     importSource: IMPORT_SOURCE,
   };
-  // Two passes: slug/collision decisions are deterministic and independent of what is already
-  // on disk, so the first pass yields the destination paths to probe before the real plan.
-  const draft = buildPlan(loaded.objects, { ...planCtx, existingPages: new Map() });
+  // Two passes: slug/collision/media decisions are deterministic and independent of what is already
+  // on disk, so the first pass yields the page paths AND the attachment destinations to probe
+  // before the real plan.
+  const draft = buildPlan(loaded.objects, {
+    ...planCtx,
+    existingPages: new Map(),
+    existingAttachments: new Set<string>(),
+  });
   const existingPages = brainRepoUsable
     ? readExistingPages(
         brainRepo,
         draft.pages.map((p) => p.relPath),
       )
     : new Map<string, string | null>();
-  const plan = buildPlan(loaded.objects, { ...planCtx, existingPages });
+  const existingAttachments = brainRepoUsable
+    ? new Set(
+        draft.media
+          .map((m) => m.destRelPath)
+          .filter((rel): rel is string => rel !== null && existsSync(join(brainRepo, rel))),
+      )
+    : new Set<string>();
+  const plan = buildPlan(loaded.objects, { ...planCtx, existingPages, existingAttachments });
 
   console.log("");
   console.log("Objects by AnyType type");
@@ -530,14 +645,20 @@ async function main(): Promise<void> {
   console.log(`Duplicate check    ${duplicateCheckNote}`);
   console.log(`Brain-repo check   ${
     brainRepoUsable
-      ? `${existingPages.size} destination(s) already on disk`
+      ? `${existingPages.size} page destination(s) and ${existingAttachments.size} attachment(s) already on disk`
       : "SKIPPED — no readable --brain-repo/$BRAIN_REPO (every page is planned as WRITE)"
   }`);
 
-  printPlan(plan, { brainRepo: brainRepoUsable ? brainRepo : null, verbose: args.verbose });
+  printPlan(plan, {
+    brainRepo: brainRepoUsable ? brainRepo : null,
+    verbose: args.verbose,
+    pagesOnly: args.pagesOnly,
+  });
+  printMedia(plan, { verbose: args.verbose });
 
   const inserts = plan.captures.filter((c) => c.action === "INSERT");
   const writes = plan.pages.filter((p) => p.action === "WRITE");
+  const copies = plan.media.filter((m) => m.action === "COPY");
   const dupes =
     plan.captures.filter((c) => c.action === "SKIP-duplicate").length +
     plan.pages.filter((p) => p.action === "SKIP-duplicate").length;
@@ -548,18 +669,7 @@ async function main(): Promise<void> {
     for (const w of plan.warnings.slice(0, 20)) console.log(`  ${w}`);
     if (plan.warnings.length > 20) console.log(`  … and ${plan.warnings.length - 20} more`);
   }
-  if (loaded.attachmentRefs.length > 0) {
-    console.log("");
-    console.log(
-      `Attachment references NOT imported (${loaded.attachmentRefs.length}): ${[
-        ...new Set(loaded.attachmentRefs),
-      ].join(", ")}`,
-    );
-    console.log(
-      `  files/ holds ${loaded.attachmentCount} file(s); this importer does not copy binaries into attachments/YYYY/MM/.`,
-    );
-  }
-  if (args.enrichment === "pending" && inserts.length > 0) {
+  if (args.enrichment === "pending" && inserts.length > 0 && !args.pagesOnly) {
     console.log("");
     console.log(
       `NOTE  ${inserts.length} new row(s) default to the enrichment states 'pending' — the same as an in-app`,
@@ -570,28 +680,46 @@ async function main(): Promise<void> {
     console.log("      long_summary / embedding queues. Use --enrichment=skipped to avoid that.");
   }
 
-  const summaryRows: Array<[string, number]> = [
-    ["capture_sources rows to insert", inserts.length],
+  const summaryRows: Array<[string, number]> = [];
+  if (!args.pagesOnly) {
+    summaryRows.push(["capture_sources rows to insert", inserts.length]);
+  }
+  summaryRows.push(
     ["brain pages to write", writes.length],
     ["duplicates skipped (already imported)", dupes],
     ["objects skipped (unsupported / unusable)", plan.skips.length],
-  ];
+    ["attachment files to COPY", copies.length],
+    [
+      "attachment files already present",
+      plan.media.filter((m) => m.action === "SKIP-present").length,
+    ],
+    [
+      "attachment refs with no page destination",
+      plan.media.filter((m) => m.action === "SKIP-no-destination").length,
+    ],
+    ["attachment refs MISSING from the export", plan.media.filter((m) => m.action === "MISSING").length],
+    ["page refs to rewrite (body + frontmatter)", plan.pages.reduce((n, p) => n + p.refsRewritten, 0)],
+  );
 
   console.log("");
   console.log(RULE);
   if (args.dryRun) {
     console.log("Summary (DRY RUN — nothing was written)");
     for (const [label, n] of summaryRows) console.log(`  ${label.padEnd(42)} ${n}`);
-    console.log(`  ${"rows written / files written".padEnd(42)} 0 / 0`);
+    console.log(`  ${"rows / pages / attachments written".padEnd(42)} 0 / 0 / 0`);
     console.log(RULE);
     return;
   }
 
   // ── real run ──────────────────────────────────────────────────────────────────────────────
-  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL environment variable is not set");
-  if (writes.length > 0 && (brainRepo === null || !brainRepoUsable)) {
+  if (!args.pagesOnly && !process.env.DATABASE_URL) {
     throw new Error(
-      `the brain repo path is not a readable directory (${brainRepo ?? "unset"}) and the plan writes ${writes.length} page(s) — pass --brain-repo or set BRAIN_REPO, or re-run with --dry-run`,
+      "DATABASE_URL environment variable is not set — pass --pages-only to import brain pages and attachments without a database",
+    );
+  }
+  if ((writes.length > 0 || copies.length > 0) && (brainRepo === null || !brainRepoUsable)) {
+    throw new Error(
+      `the brain repo path is not a readable directory (${brainRepo ?? "unset"}) and the plan writes ${writes.length} page(s) + copies ${copies.length} attachment(s) — pass --brain-repo or set BRAIN_REPO, or re-run with --dry-run`,
     );
   }
   const pageRoot = brainRepo ?? "";
@@ -610,31 +738,43 @@ async function main(): Promise<void> {
 
   let inserted = 0;
   let written = 0;
-  for (const [i, capture] of inserts.entries()) {
-    if ((i + 1) % 200 === 0) {
-      console.log(`  progress ${i + 1}/${inserts.length}  inserted=${inserted}`);
+  let copied = 0;
+  if (!args.pagesOnly) {
+    for (const [i, capture] of inserts.entries()) {
+      if ((i + 1) % 200 === 0) {
+        console.log(`  progress ${i + 1}/${inserts.length}  inserted=${inserted}`);
+      }
+      await db
+        .insert(schema.captureSources)
+        .values({
+          workspaceId: tenant.workspaceId,
+          userId: tenant.userId,
+          kind: "url",
+          content: capture.url,
+          url: capture.url,
+          state: "raw",
+          ogTitle: capture.title,
+          kindClassified: capture.kindClassified,
+          urlHost: capture.urlHost || null,
+          urlPath: capture.urlPath || null,
+          bookmarkedAt: capture.bookmarkedAt,
+          importedAt,
+          importSource: IMPORT_SOURCE,
+          sourcePayload: capture.payload,
+          ...enrichmentColumns,
+        })
+        .onConflictDoNothing();
+      inserted += 1;
     }
-    await db
-      .insert(schema.captureSources)
-      .values({
-        workspaceId: tenant.workspaceId,
-        userId: tenant.userId,
-        kind: "url",
-        content: capture.url,
-        url: capture.url,
-        state: "raw",
-        ogTitle: capture.title,
-        kindClassified: capture.kindClassified,
-        urlHost: capture.urlHost || null,
-        urlPath: capture.urlPath || null,
-        bookmarkedAt: capture.bookmarkedAt,
-        importedAt,
-        importSource: IMPORT_SOURCE,
-        sourcePayload: capture.payload,
-        ...enrichmentColumns,
-      })
-      .onConflictDoNothing();
-    inserted += 1;
+  }
+
+  // Attachments BEFORE pages: a page must never be written pointing at a file that is not there yet.
+  for (const item of copies) {
+    const dest = item.destRelPath as string;
+    const abs = join(pageRoot, dest);
+    mkdirSync(dirname(abs), { recursive: true });
+    copyFileSync(join(loaded.root, item.ref), abs);
+    copied += 1;
   }
 
   for (const page of writes) {
@@ -646,21 +786,23 @@ async function main(): Promise<void> {
 
   // Run ledger. `nexalog.imports` has no reader in the app (grep: only schema.ts) — it is a
   // record for humans, so a failure here must not fail an otherwise complete import.
-  try {
-    await db.insert(schema.imports).values({
-      workspaceId: tenant.workspaceId,
-      userId: tenant.userId,
-      kind: "bookmarks:anytype_markdown",
-      filename: `${basename(loaded.root)} (${inserted} inserted, ${dupes} duplicates, ${written} pages)`,
-      status: "done",
-    });
-  } catch (error) {
-    console.log(`  warning: could not write the nexalog.imports ledger row — ${(error as Error).message}`);
+  if (!args.pagesOnly) {
+    try {
+      await db.insert(schema.imports).values({
+        workspaceId: tenant.workspaceId,
+        userId: tenant.userId,
+        kind: "bookmarks:anytype_markdown",
+        filename: `${basename(loaded.root)} (${inserted} inserted, ${dupes} duplicates, ${written} pages, ${copied} attachments)`,
+        status: "done",
+      });
+    } catch (error) {
+      console.log(`  warning: could not write the nexalog.imports ledger row — ${(error as Error).message}`);
+    }
   }
 
   console.log("Summary (real run)");
   for (const [label, n] of summaryRows) console.log(`  ${label.padEnd(42)} ${n}`);
-  console.log(`  ${"rows written / files written".padEnd(42)} ${inserted} / ${written}`);
+  console.log(`  ${"rows / pages / attachments written".padEnd(42)} ${inserted} / ${written} / ${copied}`);
   console.log(RULE);
   console.log("Nothing was staged or committed. The brain repo is a shared working tree —");
   console.log("commit the new pages with an explicit pathspec, never `git add -A`.");
