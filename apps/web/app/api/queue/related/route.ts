@@ -134,7 +134,7 @@ async function loadSeedVectors(workspaceIds: string[], now: Date): Promise<numbe
         inArray(schema.notes.workspaceId, workspaceIds),
         isNull(schema.notes.deletedAt),
         isNotNull(sql`${schema.notes}.embedding`),
-        sql`${schema.notes}.updated_at >= ${relatedSeedCutoff(now)}`,
+        sql`${schema.notes}.updated_at >= ${relatedSeedCutoff(now).toISOString()}::timestamptz`,
       ),
     )
     .limit(RELATED_SEED_LIMIT);

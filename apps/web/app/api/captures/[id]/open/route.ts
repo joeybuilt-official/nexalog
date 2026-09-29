@@ -47,7 +47,7 @@ export async function POST(_request: Request, context: RouteContext) {
     .set({
       lastOpenedAt: now,
       lastVisitedAt: now,
-      openedAt: sql`COALESCE(${schema.captureSources.openedAt}, ${now})`,
+      openedAt: sql`COALESCE(${schema.captureSources.openedAt}, ${now.toISOString()}::timestamptz)`,
       openCount: sql`${schema.captureSources.openCount} + 1`,
     })
     .where(
