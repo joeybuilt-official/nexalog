@@ -1,7 +1,7 @@
 name: nexalog_mobile
 description: Nexalog mobile client — native, offline-first PKM.
 publish_to: "none"
-version: 1.0.29+29
+version: 1.0.30+30
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
