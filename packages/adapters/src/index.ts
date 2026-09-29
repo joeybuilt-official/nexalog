@@ -20,3 +20,9 @@ export {
   GbrainProposalQueue,
   type GbrainProposalQueueOptions,
 } from "./gbrain-proposals/gbrain-proposal-queue";
+export {
+  OpenAiCompatChatRuntime,
+  ChatRuntimeUnreachableError,
+  parseSseStream,
+  type OpenAiCompatChatRuntimeOptions,
+} from "./chat-openai/openai-compat-chat-runtime";

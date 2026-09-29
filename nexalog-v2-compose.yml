@@ -24,6 +24,17 @@ services:
       # The key is injected from the deploy env-file (never inline a secret).
       GBRAIN_MCP_URL: https://gbrain.example.com/mcp
       GBRAIN_API_KEY: ${GBRAIN_API_KEY}
+      # M5: the ONE chat port — the leg that hosts the TURN (agent loop, tools,
+      # writeback), reached over the OpenAI-compatible streaming wire.
+      # `CHAT_SESSION_HEADER` is set ONLY for a leg that keeps its own session
+      # state; a leg without sessions must not receive a header it does not read.
+      # Leaving CHAT_BASE_URL unset is a supported state: the chat surface then
+      # says no turn can be taken instead of showing an inert composer.
+      CHAT_BASE_URL: ${CHAT_BASE_URL:-}
+      CHAT_API_KEY: ${CHAT_API_KEY:-}
+      CHAT_MODEL: ${CHAT_MODEL:-litellm:auto}
+      CHAT_LEG_ID: ${CHAT_LEG_ID:-chat}
+      CHAT_SESSION_HEADER: ${CHAT_SESSION_HEADER:-}
       # App state: NEW database nexalog_v2 — do NOT reuse another app's database
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/nexalog_v2
       # Identity: SHARED Better Auth `auth` schema in the shared DB (same as v1).

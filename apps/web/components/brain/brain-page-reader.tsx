@@ -9,16 +9,15 @@
  * renderer, shared with the Journal), with `[[wiki links]]` rewritten to real
  * in-app anchors using the page's own link list as the resolution set.
  *
- * "Ask about this page" is present and DISABLED, with the reason stated. Chat
- * with the brain is a later milestone: the surface is here so the reader knows
- * it is coming and can find it, and it is inert so nobody is told a turn was
- * taken that never happened.
+ * "Ask about this page" opens the chat rail (`BrainAskControl` → `ChatRail`),
+ * which asks the server whether this deployment can take a turn and states the
+ * answer — a rail that cannot answer says so instead of showing a composer.
  */
 
 import Link from "next/link";
-import { MessageSquare } from "lucide-react";
 
 import { MarkdownBody } from "@/components/markdown-body";
+import { BrainAskControl } from "@/components/brain/brain-ask-control";
 import { brainPageHref } from "@/lib/search/result-href";
 import type { BrainPagePayload } from "@/lib/pages/degrade";
 
@@ -84,24 +83,10 @@ export function BrainPageReader({ payload }: { payload: BrainPagePayload }) {
         <h1 className="mt-2 text-2xl font-semibold">{page.title || page.slug}</h1>
         <div className="mt-3 flex flex-wrap items-start gap-3">
           <div>
-            {/* Disabled on purpose: chat with the brain is a later milestone.
-                The control is here so its absence is not read as an oversight,
-                and it is inert so nobody is told a turn was taken. */}
-            <button
-              type="button"
-              disabled
-              aria-disabled="true"
-              aria-describedby="brain-ask-notice"
-              title="Ask about this page — chat with the brain is not built yet"
-              className="inline-flex cursor-not-allowed items-center gap-1.5 rounded border border-border px-2.5 py-1 text-xs text-muted-foreground opacity-60"
-            >
-              <MessageSquare className="h-3.5 w-3.5" aria-hidden />
-              Ask about this page
-            </button>
-            <p id="brain-ask-notice" className="mt-1.5 text-[11px] text-muted-foreground">
-              Chat with the brain is not built yet — this control does nothing today. Nothing
-              is sent when you press it.
-            </p>
+            {/* Was a disabled button that said chat "is not built yet". It is
+                now real: the rail opens and states, from the server, whether
+                this deployment can take a turn. */}
+            <BrainAskControl scope={page.slug} scopeTitle={page.title || page.slug} />
           </div>
           <Link
             href={`/app/graph?slug=${encodeURIComponent(page.slug)}`}

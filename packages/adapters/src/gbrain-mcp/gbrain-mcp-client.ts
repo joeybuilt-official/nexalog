@@ -28,6 +28,16 @@ import type {
   GBrainListPagesOptions,
   GBrainLink,
   GBrainEntity,
+  GBrainContextCard,
+  GBrainContextEdge,
+  GBrainContextFact,
+  GBrainContextPack,
+  GBrainContextPackInput,
+  GBrainRecall,
+  GBrainRecallInput,
+  GBrainRecallResult,
+  GBrainVolunteeredPage,
+  GBrainVolunteerInput,
 } from "@nexalog/core";
 
 export interface GBrainMcpClientOptions {
@@ -179,6 +189,67 @@ export class GBrainMcpClient implements GBrainClient {
     };
   }
 
+  /**
+   * `context_pack` — the session-boundary bundle. VERIFIED against the live
+   * server: cards carry `{slug,title,type,summary,edges[],backlink_count}`,
+   * facts `{fact,kind,entity_slug,confidence}`, plus a server-packed `text`
+   * and `budget_used` / `dropped_count`. The tool ALSO returns the hot-memory
+   * envelope under `_meta`, which this adapter deliberately ignores — the
+   * top-level payload is the contract.
+   */
+  async contextPack(input: GBrainContextPackInput): Promise<GBrainContextPack> {
+    const args: Record<string, unknown> = { entities: input.entities.join(",") };
+    if (input.budgetTokens !== undefined) args.budget_tokens = input.budgetTokens;
+    const text = await this.call("context_pack", args);
+    const rec = this.firstRecord(text);
+    return {
+      cards: toArray(rec?.cards).map(toContextCard).filter((c): c is GBrainContextCard => c !== null),
+      facts: toArray(rec?.facts).map(toContextFact).filter((f): f is GBrainContextFact => f !== null),
+      text: str(rec?.text) ?? "",
+      budgetUsed: num(rec?.budget_used),
+      droppedCount: num(rec?.dropped_count),
+    };
+  }
+
+  /**
+   * `recall` — the memory read verb. Two arms in one call: facts (for the
+   * entity, newest first) and `results[]` (the hybrid-search arm, only when a
+   * `query` was passed). Both are budget-packed server-side.
+   */
+  async recall(input: GBrainRecallInput): Promise<GBrainRecall> {
+    const args: Record<string, unknown> = {};
+    if (input.query) args.query = input.query;
+    if (input.entity) args.entity = input.entity;
+    if (input.limit !== undefined) args.limit = input.limit;
+    if (input.budgetTokens !== undefined) args.budget_tokens = input.budgetTokens;
+    const text = await this.call("recall", args);
+    const rec = this.firstRecord(text);
+    return {
+      facts: toArray(rec?.facts).map(toContextFact).filter((f): f is GBrainContextFact => f !== null),
+      results: toArray(rec?.results)
+        .map(toRecallResult)
+        .filter((r): r is GBrainRecallResult => r !== null),
+      budgetUsed: num(rec?.budget_used),
+      droppedCount: num(rec?.dropped_count),
+    };
+  }
+
+  /**
+   * `volunteer_context` — push-based relevance over a rolling window. Returns
+   * `{pages:[...], count, window_turns}`; a miss is an empty list, never an
+   * error, so an unmatched window costs nothing.
+   */
+  async volunteerContext(input: GBrainVolunteerInput): Promise<GBrainVolunteeredPage[]> {
+    const args: Record<string, unknown> = { window: input.window };
+    if (input.maxPages !== undefined) args.max_pages = input.maxPages;
+    if (input.minConfidence !== undefined) args.min_confidence = input.minConfidence;
+    const text = await this.call("volunteer_context", args);
+    const rec = this.firstRecord(text);
+    return toArray(rec?.pages)
+      .map(toVolunteeredPage)
+      .filter((p): p is GBrainVolunteeredPage => p !== null);
+  }
+
   // ── internals ────────────────────────────────────────────────────────────
 
   private async searchImpl(
@@ -222,6 +293,18 @@ export class GBrainMcpClient implements GBrainClient {
       context: str(r.context),
       depth: typeof r.depth === "number" ? r.depth : null,
     };
+  }
+
+  /**
+   * The FIRST top-level record of a tool's text payload, unwrapping a
+   * `result`/`data` envelope when present. `context_pack` / `recall` /
+   * `volunteer_context` all answer with a single object.
+   */
+  private firstRecord(text: string | null): Record<string, unknown> | null {
+    const parsed = this.parseTextAny(text);
+    const first = parsed[0];
+    if (typeof first !== "object" || first === null) return null;
+    return first as Record<string, unknown>;
   }
 
   /** Parse `content[0].text` (a JSON string) into an array of plain records. */
@@ -337,4 +420,86 @@ export class GBrainMcpClient implements GBrainClient {
 
 function str(v: unknown): string | null {
   return typeof v === "string" ? v : v === null || v === undefined ? null : String(v);
+}
+
+function num(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function toArray(v: unknown): unknown[] {
+  return Array.isArray(v) ? v : [];
+}
+
+function rec(v: unknown): Record<string, unknown> | null {
+  return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : null;
+}
+
+function toContextCard(item: unknown): GBrainContextCard | null {
+  const r = rec(item);
+  const slug = str(r?.slug);
+  if (!r || !slug) return null; // a card with no slug can be neither read nor cited
+  return {
+    slug,
+    title: str(r.title) ?? "",
+    type: str(r.type) ?? "",
+    summary: str(r.summary) ?? "",
+    edges: toArray(r.edges)
+      .map(toContextEdge)
+      .filter((e): e is GBrainContextEdge => e !== null),
+    backlinkCount: num(r.backlink_count) ?? 0,
+  };
+}
+
+function toContextEdge(item: unknown): GBrainContextEdge | null {
+  const r = rec(item);
+  const slug = str(r?.slug);
+  if (!r || !slug) return null;
+  const direction = str(r.direction) === "in" ? "in" : "out";
+  return {
+    type: str(r.type) ?? "",
+    direction,
+    slug,
+    context: str(r.context),
+  };
+}
+
+function toContextFact(item: unknown): GBrainContextFact | null {
+  const r = rec(item);
+  const fact = str(r?.fact);
+  if (!r || !fact) return null;
+  return {
+    fact,
+    kind: str(r.kind) ?? "",
+    entitySlug: str(r.entity_slug),
+    confidence: num(r.confidence),
+  };
+}
+
+function toRecallResult(item: unknown): GBrainRecallResult | null {
+  const r = rec(item);
+  const slug = str(r?.slug);
+  if (!r || !slug) return null;
+  return {
+    slug,
+    title: str(r.title) ?? "",
+    chunk: str(r.chunk) ?? "",
+    evidence: str(r.evidence),
+    provenance: str(r.provenance),
+  };
+}
+
+function toVolunteeredPage(item: unknown): GBrainVolunteeredPage | null {
+  const r = rec(item);
+  const slug = str(r?.slug);
+  if (!r || !slug) return null;
+  return {
+    slug,
+    // The live shape names the display title `display`; older payloads use
+    // `title`. Either is the human label for the pointer.
+    title: str(r.display) ?? str(r.title) ?? "",
+    confidence: num(r.confidence),
+    arm: str(r.arm),
+    rationale: str(r.rationale),
+    synopsis: str(r.synopsis),
+  };
 }
