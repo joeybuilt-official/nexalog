@@ -402,27 +402,30 @@ regression of a shipped guarantee.
 `docs/claude/roadmap.md` → "Planned — never built" carries:
 
 ```text
-| Android app (Play) | Thin Flutter WebView shell wrapping nexalog.com/app, Codemagic-signed on tags | `nexalog-app-plan` | Plan only |
+| Android app (Play) | Thin Flutter WebView shell wrapping nexalog.com/app, Pushd-signed on tags | `nexalog-app-plan` | Plan only |
 ```
 
-That row is **wrong on all three of its claims** (`mobile/CI.md` carries the same stale opening
-line — "Thin Flutter WebView shell wrapping https://nexalog.com/app"). Verified against the tree:
+That row was **wrong on all three of its claims** — the signing claim was corrected 2026-09-29
+(see the middle bullet); the WebView and "Plan only" claims still stand. `mobile/CI.md` carries
+the same stale opening line — "Thin Flutter WebView shell wrapping https://nexalog.com/app".
+Verified against the tree:
 
 - **Not a WebView shell.** The app is native Flutter: `sqflite`, `riverpod`, `go_router`,
   `super_editor`, `speech_to_text`, a mutation queue and a sync engine (`mobile/pubspec.yaml`,
   `mobile/lib/src/core/offline/`). There is no `flutter_inappwebview` dependency at all.
-- **Not Codemagic-signed.** Codemagic is gone from the repo. Signing is Pushd via `.pushd.yaml`.
-  Pushd had **no branch or tag filter** when this was verified on 2026-09-25, so every push to any
-  branch enqueued a full `android-release` build; it **gained one on 2026-09-26** (pushd PR #25,
-  a per-entry `on: {tags, branches}` filter), and this repo's entry is now `on: tags: ["v*"]` —
-  tag-only, with manual `POST /builds` still available on demand. `release-v*` additionally
-  pushes to the Play internal track.
+- **Not signed by the CI the row used to name.** The old row claimed tag-triggered signing by a
+  CI that is no longer in the repo; it was corrected to Pushd-signed on 2026-09-29. Signing is
+  Pushd via `.pushd.yaml`. Pushd had **no branch or tag filter** when this was verified on
+  2026-09-25, so every push to any branch enqueued a full `android-release` build; it **gained
+  one on 2026-09-26** (pushd PR #25, a per-entry `on: {tags, branches}` filter), and this repo's
+  entry is now `on: tags: ["v*"]` — tag-only, with manual `POST /builds` still available on
+  demand. `release-v*` additionally pushes to the Play internal track.
 - **Not "Plan only".** The app is built and shipped: release-signed APKs have been delivered
   (`v1.0.28`, versionCode 28, signer `CN=Nexalog, O=Joeybuilt LLC`), and the current
   `mobile/pubspec.yaml` is `1.0.28+28`.
 
-**Recommended replacement row** (recommended in the PR body; not applied in this docs-only PR,
-since rewriting a roadmap initiative row is the initiative owner's call):
+**Recommended replacement row** — only the signing claim was corrected in place (2026-09-29);
+the WebView and "Plan only" rewrites are still the initiative owner's call:
 
 ```text
 | Android app (Play) | Native Flutter rebuild of the web v2 surface, offline-first (sqflite mirror + mutation queue + /api/sync); Pushd-signed, `v*` tag → emailed APK, `release-v*` tag → Play internal | platform/mobile/parity.md | Rebuild in progress — parity gate open (adr/0020) |
@@ -493,7 +496,7 @@ the roadmap row in §4.4 still *describes* the rejected WebView approach, and `m
 line still repeats it — so the two most authoritative-looking mobile docs currently advertise the
 architecture the operator rejected.
 
-**Consequence.** The stale WebView/Codemagic descriptions must not be used as a design brief. §4.4
+**Consequence.** The stale WebView descriptions must not be used as a design brief. §4.4
 carries the corrected text.
 
 ### D2 — The parity gate is a real rule (`adr/0020-mobile-v2-parity-gate.md`)

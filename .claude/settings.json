@@ -207,7 +207,6 @@
       "Bash(pnpm db:push*)",
       "Bash(pnpm drizzle-kit push*)",
       "Bash(psql*)",
-      "Bash(codemagic*)",
       "Bash(docker compose*nexalog*up*)"
     ]
   }
