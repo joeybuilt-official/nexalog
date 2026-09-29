@@ -77,6 +77,23 @@ describe("forgotten lens — filter fragments", () => {
     expect(compiled).toMatch(/opened_at IS NULL OR .*opened_at < /);
   });
 
+  it("binds the cutoff as an ISO string with a ::timestamptz cast, never a raw Date", () => {
+    // REGRESSION PIN. `db.execute` passes a JS `Date` to postgres.js as an untyped
+    // parameter and postgres.js rejects it ("Failed query: ... $1"), so the raw-Date
+    // form raised on EVERY call to /api/queue/forgotten and /api/queue/related —
+    // proven against the live database, where the identical statement with the cast
+    // returns. The previous assertions here matched only the surrounding prose and
+    // therefore passed on the broken fragment; this one asserts the cast itself.
+    const iso = "2026-05-28T00:00:00.000Z";
+    for (const frag of [forgottenFilter(new Date(iso)), relatedEditExclusion(new Date(iso))]) {
+      const compiled = fragText(frag);
+      expect(compiled).toContain(`${iso}::timestamptz`);
+    }
+    // And the raw-Date form must be gone: a bare `$1`-bound Date would read as the
+    // date's own string form with no cast after it.
+    expect(fragText(forgottenFilter(new Date(iso)))).not.toMatch(/GMT|\(Coordinated/);
+  });
+
   it("excludes homepages but keeps NULL-kind rows", () => {
     const compiled = fragText(notHomepageFilter());
     expect(compiled).toMatch(/<> 'homepage'/);
@@ -133,6 +150,9 @@ describe("related lens — pgvector fragment", () => {
   it("exclusion fragment compares the row's own updated_at", () => {
     const compiled = fragText(relatedEditExclusion(new Date("2026-09-22T00:00:00Z")));
     expect(compiled).toContain("nexalog.capture_sources.updated_at < ");
+    // Same ISO+cast contract as the forgotten lens (see the pin above): this is the
+    // second of the two fragments that raised on every live call.
+    expect(compiled).toContain("2026-09-22T00:00:00.000Z::timestamptz");
   });
 
   it("centroid mean+normalize collapses to unit vector", () => {

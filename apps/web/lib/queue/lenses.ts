@@ -165,9 +165,16 @@ const CAPTURE = sql.raw("nexalog.capture_sources");
  *
  * Takes the cutoff as a DATE (not an interval) so the caller owns the clock and
  * a test can pin the instant without travelling in time.
+ *
+ * THE BOUND IS AN ISO STRING CAST IN SQL, NOT A JS `Date`. `db.execute` hands a
+ * `Date` straight to postgres.js as an untyped parameter, which rejects it
+ * ("Failed query: ... $1") — verified against the live database: the raw-Date
+ * form raises on every call, the `::timestamptz` form returns. The unit test
+ * therefore asserts the CAST, not the fragment's prose, because a test that only
+ * matches the surrounding text passes on the broken version.
  */
 export function forgottenFilter(cutoff: Date): SQL {
-  return sql`(${CAPTURE}.opened_at IS NULL OR ${CAPTURE}.opened_at < ${cutoff})`;
+  return sql`(${CAPTURE}.opened_at IS NULL OR ${CAPTURE}.opened_at < ${cutoff.toISOString()}::timestamptz)`;
 }
 
 /**
@@ -191,9 +198,9 @@ export function cosineDistance(literal: string): SQL {
   return sql`${CAPTURE}.embedding OPERATOR(public.<=>) ${literal}::public.vector`;
 }
 
-/** RELATED: a capture edited this recently is not a rediscovery. */
+/** RELATED: a capture edited this recently is not a rediscovery. Bound as an ISO string cast in SQL, not a JS `Date` — see `forgottenFilter`. */
 export function relatedEditExclusion(cutoff: Date): SQL {
-  return sql`${CAPTURE}.updated_at < ${cutoff}`;
+  return sql`${CAPTURE}.updated_at < ${cutoff.toISOString()}::timestamptz`;
 }
 
 /**
