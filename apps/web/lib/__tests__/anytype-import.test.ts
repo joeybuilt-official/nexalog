@@ -538,11 +538,14 @@ describe("buildPlan — pages", () => {
       "anytype_id",
       "import_source",
       "imported_at",
+      "date",
       "anytype_type",
       "anytype_created_at",
     ]);
     expect(page.frontmatter.title).toBe("My First Note");
     expect(page.frontmatter.imported_at).toBe(IMPORTED_AT.toISOString());
+    // The brain's date extractor reads `date`; `anytype_created_at` alone is invisible to it.
+    expect(page.frontmatter.date).toBe("2026-09-20T00:00:00.000Z");
   });
 
   it("routes each prose type into its conventional directory", () => {
@@ -802,6 +805,7 @@ describe("buildPlan — attachments on a brain page", () => {
       "anytype_id",
       "import_source",
       "imported_at",
+      "date",
       "anytype_type",
       "anytype_created_at",
       "attachments",

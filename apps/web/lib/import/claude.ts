@@ -1256,6 +1256,13 @@ function pageFrontmatter(
     claude_message_count: String(conversation.messages.length),
     import_source: ctx.importSource,
   };
+  // `date` is the key the brain's date extractor actually reads on a `notes/` slug (`event_date`
+  // | `date` | `published`, plus a lead filename date for daily/ + meetings/ slugs only). Every
+  // other key is invisible to it: a page whose real date lives only under `claude_created_at` is
+  // indexed with its IMPORT time and cannot be found by a date-scoped recall, however precise
+  // that provenance key is. The conversation's own creation date is repeated here — the same
+  // instant as `claude_created_at`, so the two can never disagree.
+  if (conversation.createdAt) frontmatter.date = conversation.createdAt.toISOString();
   if (conversation.createdAt) frontmatter.claude_created_at = conversation.createdAt.toISOString();
   if (conversation.updatedAt) frontmatter.claude_updated_at = conversation.updatedAt.toISOString();
   if (conversation.accountUuid) frontmatter.claude_account_uuid = conversation.accountUuid;

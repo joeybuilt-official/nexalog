@@ -66,6 +66,11 @@ export function serializeCapture(state: CaptureState): string {
   return [
     "---",
     typeLine,
+    // `date` is duplicated OUTSIDE the `nexalog:` block on purpose: the brain's date extractor
+    // reads a page's TOP-LEVEL frontmatter keys only, so a date nested under `nexalog:` is
+    // invisible to it and the page gets indexed with its import time instead. Same instant as
+    // `nexalog.captured_at` — a capture's own creation time, never the ingest time.
+    `date: ${quoteYaml(state.capturedAt.toISOString())}`,
     "nexalog:",
     indent(nexalogBlock, 2),
     titleLine,
