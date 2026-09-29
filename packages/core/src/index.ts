@@ -29,6 +29,20 @@ export {
   isAttachmentKind,
   type AttachmentKind,
 } from "./domain/attachment-kind";
+export {
+  TAKE_KINDS,
+  PROPOSAL_STATUSES,
+  coerceProposalKind,
+  nextTakeRowNum,
+  unsafeFenceCellReason,
+  unpromotableReason,
+  promotionSource,
+  type TakeKind,
+  type ProposalStatus,
+  type TakeProposal,
+  type ProposalStatusCounts,
+  type PromotedTake,
+} from "./domain/take-proposal";
 
 // contracts
 export {
@@ -58,10 +72,22 @@ export type {
   GBrainListPagesOptions,
   GBrainLink,
   GBrainEntity,
+  ProposalFailureCode,
+  ProposalPage,
+  ProposalQueue,
 } from "./ports";
+// ProposalQueueError is a class (value + type), so it leaves the `export type`
+// block — a value imported through a type-only export is unusable at runtime.
+export { ProposalQueueError } from "./ports";
 
 // application
 export { CreateCapture, type CreateCaptureInput, type CreateCaptureOutput } from "./application/create-capture";
 export { ListInbox, type ListInboxInput, type CaptureSummary, type CaptureProposalBlock } from "./application/list-inbox";
 export { ClaimCapture, ResolveReview } from "./application/review";
 export { ReindexRepo, toIndexRow, type ReindexRepoResult, type BodyHasher } from "./application/reindex-repo";
+export {
+  AdjudicateProposal,
+  describeStrandedProposal,
+  type AdjudicateProposalInput,
+  type AdjudicateProposalResult,
+} from "./application/adjudicate-proposal";

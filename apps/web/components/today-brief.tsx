@@ -1,73 +1,26 @@
 // SPDX-License-Identifier: MIT
 "use client";
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
-import { Eye } from "lucide-react";
-import { usePeek } from "./peek-context";
+/**
+ * Today's brief — the daily-relevance lens (ADR-0011 lens 1).
+ *
+ * This used to fetch `/api/queue?n=5`, a route that did not exist, and render
+ * `null` on failure — so the block was silently absent in production and nothing
+ * said so. It now renders through the shared block, which reports loading, a
+ * genuine empty, and a failure with its reason, and never omits itself.
+ *
+ * The fetch contract is unchanged: `{ items: Array<{ id, url, title, host,
+ * reason? }> }` from `GET /api/queue?n=5`.
+ */
 
-type BriefItem = {
-  id: string;
-  url?: string | null;
-  title?: string | null;
-  host?: string | null;
-  reason?: string | null;
-};
+import { TodayQueueBlock } from "./today-queue-block";
 
 export function TodayBrief() {
-  const [items, setItems] = useState<BriefItem[] | null>(null);
-  const { open } = usePeek();
-
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/queue?n=5")
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: { items?: BriefItem[] }) => {
-        if (alive) setItems(d.items ?? []);
-      })
-      .catch(() => {
-        if (alive) setItems([]);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  if (items === null || items.length === 0) return null;
-
   return (
-    <section
-      aria-label="Today's brief"
-      className="mb-6 rounded-lg border bg-card p-4"
-    >
-      <h2 className="mb-3 text-sm font-semibold">Today&apos;s brief</h2>
-      <ul className="space-y-2">
-        {items.map((it) => {
-          const href = it.url ?? `/app/bookmarks/${it.id}/reader`;
-          const title = it.title?.trim() || it.host || it.url || "Untitled";
-          return (
-            <li key={it.id} className="flex items-center gap-2 text-sm">
-              <Link href={href} className="hover:underline flex-1 min-w-0 truncate">
-                {title}
-              </Link>
-              {it.reason ? (
-                <span className="text-xs text-muted-foreground shrink-0">
-                  {it.reason}
-                </span>
-              ) : null}
-              <button
-                onClick={() =>
-                  open({ type: "queue", id: it.id, title: title ?? "", url: it.url, reason: it.reason })
-                }
-                className="shrink-0 rounded p-0.5 hover:bg-muted text-muted-foreground"
-                aria-label="Peek"
-              >
-                <Eye className="h-3.5 w-3.5" />
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </section>
+    <TodayQueueBlock
+      label="Today's brief"
+      endpoint="/api/queue?n=5"
+      emptyLabel="Nothing new waiting — everything you saved recently has been opened."
+    />
   );
 }
