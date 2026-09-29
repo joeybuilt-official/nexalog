@@ -32,7 +32,7 @@ services:
       # says no turn can be taken instead of showing an inert composer.
       CHAT_BASE_URL: ${CHAT_BASE_URL:-}
       CHAT_API_KEY: ${CHAT_API_KEY:-}
-      CHAT_MODEL: ${CHAT_MODEL:-litellm:auto}
+      CHAT_MODEL: ${CHAT_MODEL:-auto}
       CHAT_LEG_ID: ${CHAT_LEG_ID:-chat}
       CHAT_SESSION_HEADER: ${CHAT_SESSION_HEADER:-}
       # App state: NEW database nexalog_v2 — do NOT reuse another app's database

@@ -15,8 +15,11 @@
  *                    LiteLLM gateway). Absent ⇒ `chat` is null and the chat
  *                    surface states that no turn can be taken.
  *   CHAT_API_KEY    (optional) — bearer for that leg.
- *   CHAT_MODEL      (optional) — model name to request (default
- *                    `litellm:auto`, the value already in use here).
+ *   CHAT_MODEL      (optional) — model name to request, sent to the leg
+ *                    VERBATIM (default `auto`). This is a MODEL name: the leg
+ *                    label belongs in CHAT_LEG_ID, never in the model. A
+ *                    prefixed value such as `litellm:auto` is not a model any
+ *                    gateway serves and is rejected on every turn.
  *   CHAT_SESSION_HEADER (optional) — session-continuity header the leg
  *                    understands; set it only for a leg that keeps its own
  *                    session state (e.g. the Hermes endpoint).
@@ -56,8 +59,14 @@ import {
 
 const DEFAULT_GBRAIN_MCP_URL = "https://gbrain.example.com/mcp";
 
-/** The model value already in use in this deployment. */
-const DEFAULT_CHAT_MODEL = "litellm:auto";
+/**
+ * The model asked of the chat leg when `CHAT_MODEL` is unset. It is sent on the
+ * wire untouched, so it must be a model the leg actually serves — `auto` is the
+ * complexity-router group on the gateway in use here. Prefixing it with the leg
+ * label (`litellm:auto`) 400s against that same gateway: the leg label is
+ * `CHAT_LEG_ID`'s job, and the model field is not a place to name a route.
+ */
+const DEFAULT_CHAT_MODEL = "auto";
 
 export interface Composition {
   brainStore: BrainStore;
