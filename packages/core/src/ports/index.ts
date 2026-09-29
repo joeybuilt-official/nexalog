@@ -157,7 +157,9 @@ export interface GBrainEntity {
 /**
  * GBrainClient — the read-only capabilities Nexalog needs from GBrain's MCP
  * server. GBrain owns index/graph/retrieval/embeddings; Nexalog only calls it
- * (it makes zero LLM calls of its own). Implemented by the MCP HTTP adapter in
+ * (it makes zero LLM calls of its own — and, per the revised boundary, no
+ * PROVIDER calls of its own either: the model leg is a separate port, see
+ * `ChatRuntime` below). Implemented by the MCP HTTP adapter in
  * `packages/adapters`; the `BrainIndex`/`NullIndex` path remains the fs
  * frontmatter fallback when GBrain is unreachable.
  *
@@ -182,6 +184,178 @@ export interface GBrainClient {
   traverseGraph(slug: string, opts?: { depth?: number; direction?: "in" | "out" | "both" }): Promise<GBrainLink[]>;
   /** Resolve one named person/company/project card (never throws on miss). */
   entity(name: string): Promise<GBrainEntity>;
+  /**
+   * Session-boundary bundle for a set of standing entities (`context_pack`):
+   * entity cards + hot facts, SERVER-side packed under `budgetTokens`. Zero
+   * LLM, sub-second — the cheap entry point a turn starts from.
+   */
+  contextPack(input: GBrainContextPackInput): Promise<GBrainContextPack>;
+  /**
+   * The memory read verb (`recall`): hot-memory facts for an entity, plus a
+   * hybrid-search arm when `query` is given, packed server-side under
+   * `budgetTokens`. Also zero-LLM.
+   */
+  recall(input: GBrainRecallInput): Promise<GBrainRecall>;
+  /**
+   * Push-based relevance (`volunteer_context`): pages the ROLLING WINDOW of
+   * recent turns names, confidence-gated. Used as a safety net for what the
+   * turn's own phrasing would miss.
+   */
+  volunteerContext(input: GBrainVolunteerInput): Promise<GBrainVolunteeredPage[]>;
+}
+
+// ── GBrain memory verbs (context_pack / recall / volunteer_context) ─────────
+//
+// Shapes verified against the live MCP server (2026-09-28). They are the cheap,
+// zero-LLM entry points a chat turn assembles from — deliberately NOT
+// `synthesize`/`think`, whose own schemas mark them expensive/slow and which
+// are background work, never in-turn.
+
+/** One typed edge on a context-pack card. */
+export interface GBrainContextEdge {
+  type: string;
+  direction: "in" | "out";
+  slug: string;
+  context: string | null;
+}
+
+/** One standing-entity card in a context pack. */
+export interface GBrainContextCard {
+  slug: string;
+  title: string;
+  type: string;
+  summary: string;
+  edges: GBrainContextEdge[];
+  backlinkCount: number;
+}
+
+/** One hot-memory fact (context_pack / recall share this row shape). */
+export interface GBrainContextFact {
+  fact: string;
+  kind: string;
+  entitySlug: string | null;
+  confidence: number | null;
+}
+
+export interface GBrainContextPackInput {
+  /** Entity names/slugs to bundle. The server caps this at 8. */
+  entities: string[];
+  /** Server-side token budget; the response reports what it used and dropped. */
+  budgetTokens?: number;
+}
+
+export interface GBrainContextPack {
+  cards: GBrainContextCard[];
+  facts: GBrainContextFact[];
+  /** The server-packed text bundle — already fitted to the budget. */
+  text: string;
+  budgetUsed: number | null;
+  droppedCount: number | null;
+}
+
+/** One page hit from recall's hybrid-search arm. */
+export interface GBrainRecallResult {
+  slug: string;
+  title: string;
+  chunk: string;
+  /** How the match was made (`keyword_exact`, …) — gbrain's own label. */
+  evidence: string | null;
+  provenance: string | null;
+}
+
+export interface GBrainRecallInput {
+  /** Free-text retrieval across pages (the hybrid-search arm). */
+  query?: string;
+  /** Entity slug — returns that entity's facts, newest first. */
+  entity?: string;
+  budgetTokens?: number;
+  /** Per-arm cap on facts AND results. */
+  limit?: number;
+}
+
+export interface GBrainRecall {
+  facts: GBrainContextFact[];
+  results: GBrainRecallResult[];
+  budgetUsed: number | null;
+  droppedCount: number | null;
+}
+
+/** One page volunteered for the current conversation window. */
+export interface GBrainVolunteeredPage {
+  slug: string;
+  title: string;
+  confidence: number | null;
+  /** Which matcher fired (`title`, `alias`, `slug-suffix`, …). */
+  arm: string | null;
+  rationale: string | null;
+  synopsis: string | null;
+}
+
+export interface GBrainVolunteerInput {
+  /** Recent turns, oldest → newest, as `user:` / `assistant:` prefixed lines. */
+  window: string;
+  maxPages?: number;
+  /** Confidence gate; slug-suffix matches need an explicitly lower one. */
+  minConfidence?: number;
+}
+
+// ── Chat (the turn) ─────────────────────────────────────────────────────────
+
+/** One prior turn handed to the runtime as conversation history. */
+export interface ChatHistoryTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ChatRuntimeRequest {
+  /**
+   * The assembled brain context, already framed as DATA (see
+   * `renderContextBlock`). It is a separate field — not a message the caller
+   * appended — so an adapter can decide where the endpoint wants it (system
+   * prompt, prefix, or dropped) without parsing prose.
+   */
+  context: string;
+  /** The user's turn, verbatim. */
+  message: string;
+  /** Prior turns, oldest first, already trimmed by the caller. */
+  history: ChatHistoryTurn[];
+  /**
+   * Continuity key for an endpoint that keeps its own session state. Sent as
+   * the endpoint's own header when it declares one; ignored otherwise.
+   */
+  sessionId?: string;
+  /** Aborted when the client disconnects — a stream nobody reads must stop. */
+  signal?: AbortSignal;
+}
+
+/**
+ * One streaming event. Adapters translate their vendor's wire format into
+ * exactly these three; nothing inward of the adapter ever sees a vendor shape.
+ */
+export type ChatRuntimeEvent =
+  | { type: "delta"; text: string }
+  | { type: "done"; finishReason: string | null }
+  | { type: "error"; message: string; status: number | null };
+
+/**
+ * ChatRuntime — the ONE chat port. Nexalog hosts the SURFACE (this session,
+ * the stream, the citations); whatever is behind this port hosts the TURN.
+ *
+ * Two adapters satisfy it from the same OpenAI-compatible wire, selected in the
+ * composition root and never in a feature: the Hermes agent endpoint (the
+ * decided deployment — it owns the agent loop, tools and writeback, and
+ * continues a session via its own id header) and the LiteLLM gateway (the
+ * standalone tier). A feature must not know which one answered; the router
+ * reports the leg it used as data, exactly as the graph/page ladders report
+ * `source`.
+ */
+export interface ChatRuntime {
+  /** Stable id of the configured leg, for the surface's own honesty banner. */
+  readonly id: string;
+  /** Model label the endpoint reports or was configured with. */
+  readonly model: string;
+  /** Stream one turn. Throws only on a transport failure BEFORE any event. */
+  streamTurn(request: ChatRuntimeRequest): AsyncIterable<ChatRuntimeEvent>;
 }
 
 // ── Proposal queue (gbrain `take_proposals`) ────────────────────────────────

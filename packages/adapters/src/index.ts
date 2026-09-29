@@ -25,3 +25,9 @@ export {
   type GbrainProjectRelevanceIndexOptions,
   type ProjectRelevanceClient,
 } from "./gbrain-proposals/project-relevance-index";
+export {
+  OpenAiCompatChatRuntime,
+  ChatRuntimeUnreachableError,
+  parseSseStream,
+  type OpenAiCompatChatRuntimeOptions,
+} from "./chat-openai/openai-compat-chat-runtime";
