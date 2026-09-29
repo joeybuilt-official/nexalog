@@ -103,4 +103,31 @@ describe("frontmatter contract", () => {
     expect(parsed.title).toBe("Voice note 2026-09-23");
     expect(parsed.body).toBe("transcript here");
   });
+
+  it("writes `date` at the TOP level, because the brain's date extractor reads only top-level keys", () => {
+    // A date nested under `nexalog:` is invisible to the brain's extractor, so the page gets
+    // indexed with its import time and drops out of date-scoped recall. The capture's own
+    // creation instant is therefore repeated as a top-level `date`, and it matches
+    // `nexalog.captured_at` exactly — never the ingest time.
+    const state = {
+      id: Ulid.of("0123456789ABCDEFGHJKMNPQRS"),
+      title: "Voice note 2026-09-23",
+      body: "",
+      type: "note" as const,
+      status: "inbox" as const,
+      kind: "audio" as const,
+      source: "pwa-share" as const,
+      capturedAt: new Date("2026-09-23T06:41:00Z"),
+      claimedBy: null,
+      claimedAt: null,
+      attachments: [],
+      originUrl: null,
+      proposal: null,
+    };
+    const text = serializeCapture(state);
+    const topLevel = text.split("\n").filter((l) => !l.startsWith(" ")).join("\n");
+    expect(topLevel).toContain('date: "2026-09-23T06:41:00.000Z"');
+    // The `nexalog:` block still carries it too — one instant, two keys, never able to disagree.
+    expect(text).toContain('captured_at: "2026-09-23T06:41:00.000Z"');
+  });
 });

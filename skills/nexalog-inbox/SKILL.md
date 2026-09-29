@@ -118,10 +118,19 @@ a capture holding a voice memo and a photo is `kind: "audio"` with
 
 4. **Write pages.** One file per entity/note. Frontmatter must include:
    `type` (person|company|concept|project|note|atom), `title`, `slug` implied by
-   path, `tags`, `updated_at`, and `nexalog.source_capture: <ulid>` for
+   path, `tags`, `updated_at`, `date`, and `nexalog.source_capture: <ulid>` for
    provenance. **Never overwrite human-edited content**: if a page exists, MERGE
    (append new facts under the existing body, update `updated_at`); do not clobber
    manual edits.
+
+   **`date` is the one key that makes a page findable by time — it is not optional.**
+   The brain's date extractor reads a page's TOP-LEVEL `event_date` / `date` / `published`
+   only (plus a leading `YYYY-MM-DD-` filename, and only for `daily/` + `meetings/`
+   slugs — an `atoms/YYYY-MM-DD/…` path is NOT read). Every other key, including
+   `updated_at` and anything nested under `nexalog:`, is invisible to it: the page is
+   then indexed with its IMPORT time, and a date-scoped recall can never return it.
+   Set `date:` to the CONTENT's own date — the event, or the capture's `captured_at`
+   for a note — never the time you ran.
 
 5. **Mark the capture.** Update the inbox file's frontmatter:
    `status: "processed"`, `processed_at: <UTC now>`, and a `proposal` block

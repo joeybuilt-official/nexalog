@@ -1073,6 +1073,13 @@ function planPage(
     import_source: ctx.importSource,
     imported_at: ctx.importedAt.toISOString(),
   };
+  // `date` is the key the brain's date extractor reads on a non-daily/meeting slug (`event_date`
+  // | `date` | `published`); `anytype_created_at` is provenance it does not know, so an object
+  // dated only under that key is indexed with its IMPORT time and drops out of date-scoped
+  // recall. The object's own creation date is therefore repeated here — modified only when the
+  // export carried no creation date at all.
+  const pageDate = createdAt ?? updatedAt;
+  if (pageDate) frontmatter.date = pageDate.toISOString();
   if (object.rawType) frontmatter.anytype_type = object.rawType;
   if (createdAt) frontmatter.anytype_created_at = createdAt.toISOString();
   if (updatedAt) frontmatter.anytype_updated_at = updatedAt.toISOString();

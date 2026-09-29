@@ -180,7 +180,7 @@ instrumentation.ts         # Server boot hook (calls registerWithPlexoCore)
 - **Bookmark tags** — flat tagging in `nexalog.bookmark_tags` + `nexalog.bookmark_tag_assignments`
 - **Workspaces** — `nexalog.workspaces` (one active workspace per user in v1)
 - **Voice notes** — `nexalog.voice_notes` (schema exists; transcription via Plexo Deepgram when PAX-exposed)
-- **Imported conversations** — Claude.ai export conversations land as brain pages `notes/<slug>.md` (`type: note`, dedupe on the frontmatter `claude_conversation_uuid`); the run is ledgered in `nexalog.imports`
+- **Imported conversations** — Claude.ai export conversations land as brain pages `notes/<slug>.md` (`type: note`, dedupe on the frontmatter `claude_conversation_uuid`); the run is ledgered in `nexalog.imports`. Every page a writer here creates carries a TOP-LEVEL `date` (the content's own creation instant — never the run time), because that is the only date key the brain's index reads: a date under `claude_created_at` / `anytype_created_at` / `nexalog.captured_at` alone is provenance, invisible to the index, and the page would be filed under its import time
 
 ## Where everything lives
 

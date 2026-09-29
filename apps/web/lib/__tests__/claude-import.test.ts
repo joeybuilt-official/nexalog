@@ -1421,6 +1421,23 @@ describe("buildPlan — page actions and idempotency", () => {
     // `type` + `title` are the whole page contract; both are present, `type` first.
     expect(Object.keys(frontmatter).slice(0, 2)).toEqual(["type", "title"]);
   });
+
+  it("dates the page from the conversation's own creation time under the top-level `date` key", () => {
+    // The brain indexes a page by the top-level `event_date` / `date` / `published` it can read.
+    // `claude_created_at` alone is provenance it does not know, so a page carrying only that key
+    // is indexed with its IMPORT time and vanishes from date-scoped recall. `date` is therefore
+    // written with the same instant — the conversation's creation time, never the run time.
+    const plan = buildPlan([parseConversation()], planCtx());
+    expect(plan.conversations[0].frontmatter.date).toBe("2024-08-15T14:23:11.123Z");
+    expect(plan.conversations[0].frontmatter.date).toBe(
+      plan.conversations[0].frontmatter.claude_created_at,
+    );
+  });
+
+  it("omits `date` when the export carries no creation date at all, and never invents one", () => {
+    const plan = buildPlan([parseConversation({ created_at: null })], planCtx());
+    expect(plan.conversations[0].frontmatter.date).toBeUndefined();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
