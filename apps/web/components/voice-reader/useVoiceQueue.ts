@@ -67,6 +67,10 @@ export function useVoiceQueue(): UseVoiceQueueState {
 
   const fetchQueue = useCallback(async (): Promise<VoiceQueueItem[]> => {
     const res = await fetch("/api/queue?n=12", { cache: "no-store" });
+    // The route answers a genuinely-empty queue with an empty `items` array; a
+    // non-2xx is a real failure and must reach the caller as one (the panel
+    // renders it in `q.error`) rather than as "Queue is empty", which is what a
+    // swallowed status produced before `/api/queue` existed.
     if (!res.ok) throw new Error(`queue ${res.status}`);
     const data = (await res.json()) as {
       items?: Array<{

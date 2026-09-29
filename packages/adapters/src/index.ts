@@ -16,3 +16,7 @@ export {
   sha256Hex,
   type DrizzleAppStateRepoOptions,
 } from "./db-drizzle/drizzle-app-state-repo";
+export {
+  GbrainProposalQueue,
+  type GbrainProposalQueueOptions,
+} from "./gbrain-proposals/gbrain-proposal-queue";

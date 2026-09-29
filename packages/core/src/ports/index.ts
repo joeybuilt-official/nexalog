@@ -9,6 +9,11 @@ import { CaptureStatus } from "../domain/capture-status";
 import { AttachmentKind } from "../domain/attachment-kind";
 import { Slug } from "../domain/slug";
 import { Ulid } from "../domain/ulid";
+import {
+  PromotedTake,
+  ProposalStatusCounts,
+  TakeProposal,
+} from "../domain/take-proposal";
 
 /** Generate IDs (ULIDs) and timestamps. Injectable for deterministic tests. */
 export interface IdGen {
@@ -167,6 +172,78 @@ export interface GBrainClient {
   traverseGraph(slug: string, opts?: { depth?: number; direction?: "in" | "out" | "both" }): Promise<GBrainLink[]>;
   /** Resolve one named person/company/project card (never throws on miss). */
   entity(name: string): Promise<GBrainEntity>;
+}
+
+// ── Proposal queue (gbrain `take_proposals`) ────────────────────────────────
+
+/** What an accept/reject attempt is told about why it could not proceed. */
+export type ProposalFailureCode = "not_found" | "not_pending";
+
+/**
+ * ProposalQueueError — a business-rule failure, not a transport one.
+ *
+ * `proposalId` is carried so a route can name the row in its response, and
+ * `code` is the stable value a client branches on (never the message text).
+ * `hint` is the repair instruction when there is one — the stranded-accepted
+ * shape is repairable, and saying so beats a dead end.
+ */
+export class ProposalQueueError extends Error {
+  readonly code: ProposalFailureCode;
+  readonly proposalId: number;
+  readonly hint?: string;
+
+  constructor(input: {
+    code: ProposalFailureCode;
+    proposalId: number;
+    message: string;
+    hint?: string;
+  }) {
+    super(input.message);
+    this.name = "ProposalQueueError";
+    this.code = input.code;
+    this.proposalId = input.proposalId;
+    this.hint = input.hint;
+  }
+}
+
+/** One page of the pending queue, plus the whole-queue counts. */
+export interface ProposalPage {
+  proposals: TakeProposal[];
+  counts: ProposalStatusCounts;
+  /** Pass back as `offset` for the next slice; null when the queue is exhausted. */
+  nextOffset: number | null;
+}
+
+/**
+ * ProposalQueue — read the pending queue and act on one proposal.
+ *
+ * Implemented by `GbrainProposalQueue` (a parameterized read/write against
+ * gbrain's own `take_proposals` / `takes` tables). gbrain owns those tables and
+ * its MCP surface exposes no adjudication verb — its `takes_*` ops are read +
+ * add/update/resolve, and `takes propose --accept` exists only as a local CLI —
+ * so reaching the same tables directly is the only way an operator can drain
+ * the queue from the app. This port is the boundary that keeps that fact out of
+ * the domain.
+ *
+ * The contract that matters is the CAS: `act` must claim the row with a guarded
+ * UPDATE whose row count it CHECKS, then perform the promote. Check-then-write
+ * would let two operators both pass the pending check and both append the take.
+ */
+export interface ProposalQueue {
+  /** Pending proposals, newest first, with whole-queue status counts. */
+  list(input: { limit: number; offset: number }): Promise<ProposalPage>;
+
+  /**
+   * Adjudicate one proposal. On accept the take is appended to the page and the
+   * row is stamped `accepted` + `promoted_row_num` + `acted_*`; on reject the
+   * row is stamped `rejected` + `acted_*` and nothing is written to the page.
+   */
+  act(input: {
+    proposalId: number;
+    accept: boolean;
+    /** Who acted — recorded verbatim in `acted_by`. */
+    actedBy: string;
+  }): Promise<{ proposal: TakeProposal; promoted: PromotedTake | null }>;
 }
 
 // ── AppState: derived index + tokens + read state ───────────────────────────
