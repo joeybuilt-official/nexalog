@@ -18,6 +18,7 @@ import {
   FolderKanban,
   Library,
   Scale,
+  MessagesSquare,
   type LucideIcon,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -63,6 +64,7 @@ const navGroups: NavGroup[] = [
     label: "Brain",
     items: [
       { href: "/app/brain", label: "Pages", icon: Library },
+      { href: "/app/chat", label: "Ask", icon: MessagesSquare },
       { href: "/app/proposals", label: "Proposals", icon: Scale },
       { href: "/app/graph", label: "Garden", icon: GitFork },
     ],
