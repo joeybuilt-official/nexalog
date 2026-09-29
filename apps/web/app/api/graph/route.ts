@@ -27,15 +27,7 @@ import {
   type GraphEdge,
   type GraphNode,
 } from "@/lib/graph/degrade";
-
-const DEFAULT_SEEDS = [
-  "concepts/litellm-gateway",
-  "companies/joeybuilt",
-  "people/example-person",
-  "projects/panoply",
-  "projects/kapsel",
-  "concepts/docker-compose-stacks",
-];
+import { GRAPH_SEED_TYPES, selectGraphSeeds, type GraphSeedCandidate } from "@/lib/graph/seeds";
 
 const MAX_NODES = 150;
 
@@ -85,6 +77,31 @@ async function readGbrain(root: string | null, depth: number): Promise<GbrainOut
   }
 }
 
+/**
+ * Read one page row per type for the whole-brain view, so the seeds are the
+ * brain's own live pages rather than a hardcoded list that rots. Best-effort
+ * per type: a type whose `list_pages` call fails contributes no candidates
+ * instead of failing the whole graph.
+ */
+async function readSeedCandidates(
+  gbrain: NonNullable<ReturnType<typeof getComposition>["gbrain"]>,
+): Promise<Partial<Record<(typeof GRAPH_SEED_TYPES)[number], GraphSeedCandidate[]>>> {
+  const entries = await Promise.all(
+    GRAPH_SEED_TYPES.map(async (type) => {
+      try {
+        const rows = await gbrain.listPages({ type, limit: 3, sort: "updated_desc" });
+        return [
+          type,
+          rows.map((r) => ({ slug: r.slug, title: r.title, type: r.type, updatedAt: r.updatedAt })),
+        ] as const;
+      } catch {
+        return [type, []] as const;
+      }
+    }),
+  );
+  return Object.fromEntries(entries);
+}
+
 /** One bounded GBrain traversal, exactly as the Phase-2b route did it. */
 async function traverse(
   gbrain: NonNullable<ReturnType<typeof getComposition>["gbrain"]>,
@@ -102,7 +119,10 @@ async function traverse(
     }
   };
 
-  const roots = slug ? [slug] : DEFAULT_SEEDS;
+  // A named root walks just that neighborhood; the whole-brain view derives
+  // its seeds from the brain's own live pages (`list_pages`), so a renamed or
+  // absent page can no longer leave a silent hole in the garden.
+  const roots = slug ? [slug] : selectGraphSeeds(await readSeedCandidates(gbrain));
   for (const seed of roots) {
     if (nodes.size >= MAX_NODES) break;
     addNode(seed);
