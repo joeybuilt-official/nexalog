@@ -25,12 +25,33 @@ import java.util.concurrent.TimeUnit
  *     (see mobile/lib/src/core/auth/auth_store.dart, key "nexalog_bearer_token") by
  *     invoking the plugin's own Android classes directly — same process, same
  *     ciphertext, guaranteed to match what the Flutter engine reads/writes.
- *   - POSTs `{ kind, content, url }` to `https://nexalog.com/api/capture` with
- *     `Authorization: Bearer <token>` (the app is a native bearer-auth client;
+ *   - POSTs multipart/form-data to `https://nexalog.com/api/capture` with the
+ *     fields the route actually parses (apps/web/app/api/capture/route.ts:
+ *     `text` | `url` | `file*` | `source` — the URL travels as the part named
+ *     `url`, `source` is pinned `pwa-share` (the provenance the PWA manifest's
+ *     share_target also sends) — and `Authorization: Bearer <token>` (the app
+ *     is a native bearer-auth client;
  *     there is no WebView and no session cookie to read).
+ *     The endpoint does `await req.formData()` as its FIRST statement, so a
+ *     JSON body throws before any field is read and the catch answers 400 —
+ *     the share never lands. Multipart is the contract the Flutter client
+ *     already speaks (mobile/lib/src/core/api/capture_repo.dart) and the one
+ *     the PWA manifest declares.
  *   - Shows a system Toast on save success only — duplicates are silent (per
  *     operator: "system must automatically not bookmark items that already have
  *     been"). 401 surfaces a "Open Nexalog to sign in first" toast.
+ *     NOTE on duplicates: the OLD code read `duplicate` out of the capture
+ *     route's body — a field /api/capture never sends (it answers 201
+ *     {ok:true, captureId} unconditionally; dedupe lives on /api/bookmarks,
+ *     a different model). That branch was dead code and is dropped. The
+ *     duplicate probe COULD have ridden GET /api/bookmarks, but that route
+ *     does NOT authenticate a bearer token (its getAuthUser path resolves
+ *     only through better-auth's bearer plugin, whose verification the
+ *     session-cookie shim in lib/auth/server.ts deliberately does not cover),
+ *     so a bearer-auth probe would 401 forever. Silent-duplicate semantics
+ *     therefore degrade to the capture route's own behaviour; a re-shared
+ *     link lands a second row and toasts Saved. Fixing the bearer rejection
+ *     on /api/bookmarks is a separate, web-side change.
  *   - `finishAndRemoveTask()` so the user stays in the source app and our entry
  *     never appears in Recents.
  *
@@ -115,11 +136,13 @@ class ShareReceiverActivity : Activity() {
             return CaptureResult.Unauthorized
         }
 
-        val body = JSONObject().apply {
-            put("kind", "url")
-            put("content", url)
-            put("url", url)
-        }.toString()
+        // Multipart form data — the ONLY body /api/capture can parse (the route
+        // does `await req.formData()` before it reads any field, so a JSON body
+        // is a guaranteed 400 that never reaches the capture logic). The two
+        // fields below are exactly what the Flutter CaptureRepo sends; no file
+        // parts exist for a shared link, and `source` pins provenance.
+        val boundary = "nexalog-share-${System.currentTimeMillis()}"
+        val lineSeparator = "\r\n"
 
         var conn: HttpURLConnection? = null
         try {
@@ -128,24 +151,40 @@ class ShareReceiverActivity : Activity() {
                 doOutput = true
                 connectTimeout = 8000
                 readTimeout = 12000
-                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty(
+                    "Content-Type",
+                    "multipart/form-data; boundary=$boundary",
+                )
                 setRequestProperty("Accept", "application/json")
                 setRequestProperty("Authorization", "Bearer $token")
                 setRequestProperty("User-Agent", "NexalogShareReceiver/1.0")
             }
-            conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+
+            fun formField(name: String, value: String): ByteArray {
+                return (
+                    "--$boundary$lineSeparator" +
+                        "Content-Disposition: form-data; name=\"$name\"$lineSeparator" +
+                        "Content-Type: text/plain; charset=utf-8$lineSeparator" +
+                        lineSeparator +
+                        value +
+                        lineSeparator
+                    ).toByteArray(Charsets.UTF_8)
+            }
+
+            conn.outputStream.use { out ->
+                // `url` carries the extracted link — the field the use case turns
+                // into a `link` capture (a `text` field is DISCARDED by
+                // CreateCapture the moment a url is present, so it is never
+                // sent here). `source` pins provenance.
+                out.write(formField("url", url))
+                out.write(formField("source", CAPTURE_SOURCE))
+                out.write("--$boundary--$lineSeparator".toByteArray(Charsets.UTF_8))
+                out.flush()
+            }
             val code = conn.responseCode
             return when {
                 code == 401 || code == 403 -> CaptureResult.Unauthorized
-                code in 200..299 -> {
-                    val resBody = conn.inputStream.bufferedReader().use { it.readText() }
-                    val json = try { JSONObject(resBody) } catch (_: Throwable) { null }
-                    if (json?.optBoolean("duplicate", false) == true) {
-                        CaptureResult.Duplicate
-                    } else {
-                        CaptureResult.Saved
-                    }
-                }
+                code in 200..299 -> CaptureResult.Saved
                 else -> CaptureResult.Error
             }
         } catch (_: Throwable) {
@@ -159,5 +198,21 @@ class ShareReceiverActivity : Activity() {
 
     companion object {
         private const val NEXALOG_BASE = "https://nexalog.com"
+
+        /**
+         * The wire contract this receiver MUST satisfy (apps/web/app/api/capture/
+         * route.ts). The route's first statement is `await req.formData()`, which
+         * throws on any non-form body before a single field is read — so the
+         * request MUST be multipart/form-data, and the URL must travel as the
+         * part named `url`. `source` must be one of pwa-share | web |
+         * bookmarklet | mcp (anything else defaults to `web` silently). This
+         * contract is pinned from the web side by
+         * apps/web/app/api/capture/__tests__/share-target-contract.test.ts,
+         * which encodes both the fields and an asserted-REJECTED JSON body — the
+         * exact defect that made every share a 400 ("Couldn't save") before.
+         * If the route's parser ever changes, that test fails first and this
+         * block is what to reconcile.
+         */
+        const val CAPTURE_SOURCE = "pwa-share"
     }
 }
