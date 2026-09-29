@@ -75,3 +75,10 @@ next-session.txt
 
 # Build artifacts — binaries do not belong in the repo.
 *.zip
+
+# Editor/atomic-write leftovers. A bare `*.tmp` is safe here (unlike `*.bak`, which
+# legitimately exists on disk in places): nothing tracked should ever match, and the one
+# file that did — a stale single-line copy of apps/web/tsconfig.json, unreferenced since
+# the initial release — has been deleted. Anchoring this to a directory would leave the
+# same hole one level over.
+*.tmp
