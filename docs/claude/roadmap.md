@@ -38,7 +38,7 @@ durable record.
 | Initiative | Intent (from plan doc) | Original plan dir | Status at fold |
 |---|---|---|---|
 | Full-app audit + fix | Audit then fix graph, pipeline, find, synthesis so Nexalog delivers knowledge-graph synthesis users can FIND/USE/CREATE | `nexalog-app-audit-plan` | Phase G2 done+deployed+verified (kind-filter, failure-surfacing, cascade-delete) |
-| Android app (Play) | Thin Flutter WebView shell wrapping nexalog.com/app, Codemagic-signed on tags | `nexalog-app-plan` | Plan only |
+| Android app (Play) | Thin Flutter WebView shell wrapping nexalog.com/app, Pushd-signed on tags | `nexalog-app-plan` | Plan only |
 | Graph Explorer optimization | Make shipped-but-minimal explorer usable/safe/performant: fit-to-view, node/edge semantics, search/filter, a11y + mobile | `nexalog-explorer-plan` | COMPLETE — all 8 phases shipped+deployed+verified |
 | Extension v1.2.0 (web history + already-saved) | Keep browsing history inside Nexalog (forward capture + back-catalog import); already-saved indicator; no URL leakage | `nexalog-extension-history-plan` | Phases 1–2 build-only, uncommitted; Phase 3 prod-migration gate needs operator OK |
 | Graphiti graph completion | Drain historical notes+bookmarks into dedicated graph workspace, clean orphans | `nexalog-graph-plan` | Phase 1 paced backfill (~2.5–3 days), then dedupe |

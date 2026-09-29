@@ -65,7 +65,7 @@ guardrails are doctrine, and they are absolute:
   `IntelligencePort` only.
 - **NEVER** add Sentry, PostHog, Inngest, or LangChain. Plexo handles observability and async.
 - **NEVER** hardcode a secret. Env vars only, and never print one into a log line or a commit.
-- **NEVER** deploy to prod (nexalog.com / prod-host), publish a release, or ship a Codemagic mobile build
+- **NEVER** deploy to prod (nexalog.com / prod-host), publish a release, or ship a signed mobile release build
   unless the task explicitly asks and a human has approved.
 - **NEVER** pipe the network to a shell (`curl … | bash`) or install from an untrusted source.
 - **NEVER** commit machine-local loop state: `.claude-state.json`, `TASKS.md`, `PROGRESS.md`,

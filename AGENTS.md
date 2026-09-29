@@ -72,7 +72,7 @@ guardrails are doctrine, and they are absolute:
   `IntelligencePort` only.
 - **NEVER** add Sentry, PostHog, Inngest, or LangChain. Plexo handles observability and async.
 - **NEVER** hardcode a secret. Env vars only, and never print one into a log line or a commit.
-- **NEVER** deploy to prod (nexalog.com / prod-host), publish a release, or ship a Codemagic mobile build
+- **NEVER** deploy to prod (nexalog.com / prod-host), publish a release, or ship a signed mobile release build
   unless the task explicitly asks and a human has approved.
 - **NEVER** pipe the network to a shell (`curl … | bash`) or install from an untrusted source.
 - **NEVER** commit machine-local loop state: `.claude-state.json`, `TASKS.md`, `PROGRESS.md`,
@@ -207,7 +207,7 @@ per-user workflow rules stay in local `~/.claude/` memory, never here.
 
 - **A gate exists, and it is narrower than it sounds: it binds Claude Code only.** `.claude/settings.json`
   (added 2026-09-25; deny list copied verbatim from the sibling `fylo` gate, plus this repo's
-  db-destruction and deploy denies: `pnpm db:push`, `pnpm drizzle-kit push`, `psql`, `codemagic`,
+  db-destruction and deploy denies: `pnpm db:push`, `pnpm drizzle-kit push`, `psql`,
   `docker compose … nexalog … up`) mechanically refuses those commands **in a Claude Code session in
   this repo** — that closes the biggest hole, since the #1 MUST NOT above is no longer prose for the
   one harness that reads the file. It is one harness: Cursor, Copilot, Codex, Gemini, Windsurf, Cline,
