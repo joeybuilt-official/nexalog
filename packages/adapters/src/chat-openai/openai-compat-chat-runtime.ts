@@ -204,6 +204,13 @@ export async function* parseSseStream(
     // A final frame without a trailing newline still counts.
     const tail = parseSseLine(buffer.replace(/\r$/, ""), label);
     if (tail) yield tail;
+  } catch (e) {
+    // The transport died mid-stream (`TypeError: terminated` is what a
+    // truncated chunked body surfaces as). This is NOT thrown: a partial answer
+    // is still an answer, and the caller's job is to report it as partial rather
+    // than discard what already arrived. The frame is emitted here because only
+    // this layer knows the stream was cut rather than completed.
+    yield { type: "error", message: `${label}: stream terminated (${String(e)})`, status: null };
   } finally {
     reader.releaseLock();
   }

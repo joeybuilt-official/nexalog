@@ -310,6 +310,56 @@ describe("POST /api/chat/turn — typed degradation", () => {
     expect(body.error).toBe("chat_unavailable");
   });
 
+  it("maps a transport failure on the FIRST pull to a typed 502, never an empty stream", async () => {
+    // The real-world shape this pins: the leg answers 200 with correct SSE
+    // headers, then the transport terminates before any content
+    // (`TypeError: terminated`). The surface must report "no turn was taken" as
+    // a status — a 200 whose body never carries a delta reads to a client as a
+    // working chat that answered nothing.
+    const leg = chatLeg([], {
+      streamTurn: vi.fn(() => ({
+        [Symbol.asyncIterator]() {
+          return {
+            next: () => Promise.reject(new TypeError("terminated")),
+          };
+        },
+      })),
+    });
+    compose({ chat: leg });
+    const res = await POST(request({ message: "hi" }));
+    expect(res.status).toBe(502);
+    const body = (await res.json()) as { error: string; code: string; surface: unknown };
+    expect(body).toMatchObject({ error: "stream_broken", code: "leg_failed" });
+    expect(body.surface).toBeDefined();
+  });
+
+  it("keeps the partial answer and marks it partial when the transport dies MID-answer", async () => {
+    // The other side of the same coin: bytes already streamed, so a status is no
+    // longer possible. The answer is delivered with `partial: true`.
+    const leg = chatLeg([], {
+      streamTurn: vi.fn(() => ({
+        [Symbol.asyncIterator]() {
+          let step = 0;
+          return {
+            next: () => {
+              step += 1;
+              if (step === 1) return Promise.resolve({ done: false, value: { type: "delta", text: "half " } });
+              if (step === 2) return Promise.resolve({ done: false, value: { type: "delta", text: "an ans" } });
+              return Promise.reject(new TypeError("terminated"));
+            },
+          };
+        },
+      })),
+    });
+    compose({ chat: leg });
+    const res = await POST(request({ message: "hi" }));
+    expect(res.status).toBe(200);
+    const events = await frames(res);
+    const done = events.at(-1) as { content: string; partial: boolean };
+    expect(done.content).toBe("half an ans");
+    expect(done.partial).toBe(true);
+  });
+
   it("still answers when gbrain is configured but every read fails, and names the failures", async () => {
     const boom = vi.fn(async () => {
       throw new Error("gbrain is down");

@@ -153,6 +153,42 @@ describe("parseSseStream", () => {
     const events = await collect(parseSseStream(bodyOf("data: {not json}\n\n", delta("ok")), "t"));
     expect(events).toEqual([{ type: "delta", text: "ok" }]);
   });
+
+  it("turns a mid-stream transport death into an error frame, keeping what streamed", async () => {
+    // `TypeError: terminated` is what a truncated chunked body surfaces as, and
+    // it is exactly what the deployment's own agent endpoint produces when a
+    // turn is interrupted. Bytes already delivered are DELIVERED — the frame
+    // says the stream was cut so the caller marks the answer partial instead of
+    // discarding it or presenting it as complete.
+    const encoder = new TextEncoder();
+    let reads = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        reads += 1;
+        if (reads === 1) {
+          controller.enqueue(encoder.encode(delta("partial answer")));
+          return;
+        }
+        controller.error(new TypeError("terminated"));
+      },
+    });
+
+    const events = await collect(parseSseStream(body, "leg"));
+    expect(events[0]).toEqual({ type: "delta", text: "partial answer" });
+    expect(events[1]).toMatchObject({ type: "error" });
+    expect((events[1] as { message: string }).message).toContain("stream terminated");
+  });
+
+  it("does not throw when the body dies before any byte arrives", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(new TypeError("terminated"));
+      },
+    });
+    const events = await collect(parseSseStream(body, "leg"));
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: "error" });
+  });
 });
 
 describe("streamTurn", () => {
