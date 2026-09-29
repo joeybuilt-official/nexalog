@@ -21,6 +21,11 @@ export {
   type GbrainProposalQueueOptions,
 } from "./gbrain-proposals/gbrain-proposal-queue";
 export {
+  GbrainProjectRelevanceIndex,
+  type GbrainProjectRelevanceIndexOptions,
+  type ProjectRelevanceClient,
+} from "./gbrain-proposals/project-relevance-index";
+export {
   OpenAiCompatChatRuntime,
   ChatRuntimeUnreachableError,
   parseSseStream,

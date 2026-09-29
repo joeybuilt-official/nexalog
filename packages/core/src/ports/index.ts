@@ -14,6 +14,7 @@ import {
   ProposalStatusCounts,
   TakeProposal,
 } from "../domain/take-proposal";
+import { StoredPlanDiff } from "../domain/plan-impact";
 
 /** Generate IDs (ULIDs) and timestamps. Injectable for deterministic tests. */
 export interface IdGen {
@@ -89,6 +90,15 @@ export interface GBrainSearchHit {
   score: number | null;
   sourceId: string | null;
   effectiveDate: string | null;
+  /**
+   * Cosine similarity to the query (0..1, higher = closer), when the server
+   * reports one. `score` is NOT this: it is the RRF-fused rank score, which
+   * folds in keyword hits, backlink boost and graph adjacency — a page can score
+   * 0.83 on a query it is not semantically close to at all. Anything that wants
+   * to make a claim about SEMANTIC closeness (the plan-impact reconciler's
+   * relevance floor) must read this field or decline to make the claim.
+   */
+  cosine: number | null;
 }
 
 /** A read of one brain page (get_page). */
@@ -418,6 +428,50 @@ export interface ProposalQueue {
     /** Who acted — recorded verbatim in `acted_by`. */
     actedBy: string;
   }): Promise<{ proposal: TakeProposal; promoted: PromotedTake | null }>;
+
+  /**
+   * Emit a proposal, or report that an identical one already exists.
+   *
+   * The contract the plan-impact reconciler depends on is IDEMPOTENCY: a second
+   * call with the same (project page, content hash, prompt version, claim) must
+   * NOT create a second row — it reports `created: false` and returns the row that
+   * was already there. The queue already enforces exactly that with its own unique
+   * index `(source_id, page_slug, content_hash, prompt_version, md5(claim_text))`,
+   * so the implementation is an `ON CONFLICT DO NOTHING` + read-back rather than a
+   * check-then-write (which would let two concurrent runs both see "no row" and
+   * both insert).
+   *
+   * `created: false` is success, not an error: it is the honest answer to "you have
+   * already proposed this", and it is what makes the reconciler re-runnable.
+   */
+  propose(input: ProposeInput): Promise<ProposeOutcome>;
+}
+
+/** The fields a producer supplies for one new proposal. */
+export interface ProposeInput {
+  sourceId: string;
+  pageSlug: string;
+  contentHash: string;
+  promptVersion: string;
+  waveVersion: string;
+  runId: string;
+  claimText: string;
+  kind: string;
+  holder: string;
+  weight: number;
+  domain: string | null;
+  modelId: string;
+  /**
+   * The plan-change payload, stored in `take_proposals.plan_diff`. Only meaningful
+   * for `kind = 'plan_change'`; null for every other kind.
+   */
+  planDiff: StoredPlanDiff | null;
+}
+
+export interface ProposeOutcome {
+  /** True when this call inserted the row; false when an identical one existed. */
+  created: boolean;
+  proposal: TakeProposal;
 }
 
 // ── AppState: derived index + tokens + read state ───────────────────────────

@@ -274,6 +274,11 @@ export class GBrainMcpClient implements GBrainClient {
         score: typeof r.score === "number" ? r.score : null,
         sourceId: str(r.source_id),
         effectiveDate: str(r.effective_date),
+        // The semantic component, passed through as-is. `score` above is RRF-fused
+        // (keyword hits + backlink boost + graph adjacency), so a caller that needs
+        // to claim semantic closeness — the plan-impact reconciler — must read this
+        // field; null when the server did not report one, never a made-up default.
+        cosine: typeof r.cosine === "number" && Number.isFinite(r.cosine) ? r.cosine : null,
       });
     }
     return out;

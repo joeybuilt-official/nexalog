@@ -58,6 +58,31 @@ const PROPOSAL = {
   promotedRowNum: null,
   actedAt: null,
   actedBy: null,
+  planDiff: null,
+};
+
+/** The capture id every plan_change fixture cites. */
+const EVIDENCE_CAPTURE = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+
+/** A plan_change as the reconciler emits it. */
+const PLAN_CHANGE_PROPOSAL = {
+  ...PROPOSAL,
+  id: 900,
+  kind: "plan_change",
+  pageSlug: "projects/fylo",
+  domain: "project",
+  claimText: `Plan change on projects/fylo — add: fylo verify CI failed [capture ${EVIDENCE_CAPTURE}]`,
+  modelId: "nexalog:plan-impact-reconciler@1",
+  weight: 0.72,
+  planDiff: {
+    op: "add",
+    milestoneId: null,
+    current: null,
+    proposed: "fylo verify CI failed",
+    rationale: "0.72 cosine in the brain's own project index, floor 0.55",
+    evidenceCapture: EVIDENCE_CAPTURE,
+    confidence: 0.72,
+  },
 };
 
 async function renderPage(): Promise<string> {

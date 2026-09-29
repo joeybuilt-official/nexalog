@@ -26,7 +26,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ProposalQueueError } from "@nexalog/core";
+import { ProposalQueueError, type TakeProposal } from "@nexalog/core";
 
 const { getAuthUser, logEvent, getProposalQueue } = vi.hoisted(() => ({
   getAuthUser: vi.fn(),
@@ -43,7 +43,7 @@ import { POST } from "@/app/api/proposals/[id]/act/route";
 
 const USER = { id: "user-1" };
 
-const DOMAIN_PROPOSAL = {
+const DOMAIN_PROPOSAL: TakeProposal = {
   id: 262,
   sourceId: "default",
   pageSlug: "inbox/01m3hehg15em1ht84zvej9d3m8",
@@ -58,6 +58,8 @@ const DOMAIN_PROPOSAL = {
   promotedRowNum: null,
   actedAt: null,
   actedBy: null,
+  // Always present on the domain type now; null for every claim-shaped kind.
+  planDiff: null,
 };
 
 function fakeQueue(over: Partial<Record<"list" | "act", unknown>> = {}) {
@@ -133,6 +135,7 @@ describe("GET /api/proposals", () => {
         "modelId",
         "pageHref",
         "pageSlug",
+        "planDiff",
         "promotedRowNum",
         "proposedAt",
         "sourceId",
@@ -158,6 +161,55 @@ describe("GET /api/proposals", () => {
     const body = (await (await list()).json()) as { proposals: Array<{ pageHref: string }> };
 
     expect(body.proposals[0].pageHref).toBe("/app/brain/people/a%20b/c%2Bd");
+  });
+
+  it("carries a plan_change's diff through to the wire, with the citing capture id", async () => {
+    const { queue, list: listFn } = fakeQueue();
+    listFn.mockResolvedValueOnce({
+      proposals: [
+        {
+          ...DOMAIN_PROPOSAL,
+          id: 900,
+          kind: "plan_change",
+          pageSlug: "projects/fylo",
+          claimText:
+            "Plan change on projects/fylo — add: fylo CI failed [capture 7c9e6679-7425-40de-944b-e07fc1f90ae7]",
+          domain: "project",
+          planDiff: {
+            op: "add",
+            milestoneId: null,
+            current: null,
+            proposed: "fylo CI failed",
+            rationale: "0.72 cosine",
+            evidenceCapture: "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+            confidence: 0.72,
+          },
+        },
+      ],
+      counts: { pending: 1, accepted: 0, rejected: 0, superseded: 0 },
+      nextOffset: null,
+    });
+    getProposalQueue.mockReturnValue(queue);
+
+    const body = (await (await list()).json()) as {
+      proposals: Array<{ kind: string; planDiff: Record<string, unknown> | null }>;
+    };
+
+    const dto = body.proposals[0];
+    expect(dto.kind).toBe("plan_change");
+    // The field the acceptance bar names, carried end to end.
+    expect(dto.planDiff?.evidenceCapture).toBe("7c9e6679-7425-40de-944b-e07fc1f90ae7");
+    expect(dto.planDiff?.op).toBe("add");
+  });
+
+  it("reports planDiff as null for a claim-shaped proposal rather than omitting it", async () => {
+    // A client branching on `planDiff` must never have to tell "absent" from
+    // "null": one shape, stated.
+    const body = (await (await list()).json()) as {
+      proposals: Array<Record<string, unknown>>;
+    };
+    expect(body.proposals[0]).toHaveProperty("planDiff");
+    expect(body.proposals[0].planDiff).toBeNull();
   });
 
   it("401s without a session, and never touches the queue", async () => {

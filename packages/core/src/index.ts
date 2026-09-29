@@ -43,6 +43,29 @@ export {
   type ProposalStatusCounts,
   type PromotedTake,
 } from "./domain/take-proposal";
+export {
+  PLAN_OPS,
+  PLAN_IMPACT_COSINE_FLOOR,
+  PLAN_IMPACT_DOMAIN,
+  PLAN_IMPACT_HOLDER,
+  PLAN_IMPACT_MODEL_ID,
+  PLAN_IMPACT_PROMPT_VERSION,
+  PLAN_IMPACT_WAVE_VERSION,
+  PLAN_DIFF_FIELD_MAX,
+  PROJECT_SLUG_PREFIX,
+  clipPlanField,
+  confidenceFromCosine,
+  parsePlanDiff,
+  pickPlanImpactProject,
+  planChangeClaim,
+  planImpactContentHash,
+  planImpactRunId,
+  toStoredPlanDiff,
+  type PlanDiff,
+  type PlanOp,
+  type ProjectCandidate,
+  type StoredPlanDiff,
+} from "./domain/plan-impact";
 
 // contracts
 export {
@@ -89,6 +112,8 @@ export type {
   ProposalFailureCode,
   ProposalPage,
   ProposalQueue,
+  ProposeInput,
+  ProposeOutcome,
 } from "./ports";
 // ProposalQueueError is a class (value + type), so it leaves the `export type`
 // block — a value imported through a type-only export is unusable at runtime.
@@ -105,6 +130,20 @@ export {
   type AdjudicateProposalInput,
   type AdjudicateProposalResult,
 } from "./application/adjudicate-proposal";
+export {
+  ReconcilePlanImpact,
+  PLAN_CHANGE_KIND,
+  DEFAULT_PLAN_IMPACT_LIMIT,
+  DEFAULT_PLAN_IMPACT_WINDOW_HOURS,
+  captureEvidenceText,
+  defaultPlanImpactWindow,
+  planImpactRationale,
+  type CaptureReconciliationReader,
+  type ProjectRelevanceIndex,
+  type ReconciliationCapture,
+  type ReconcilePlanImpactInput,
+  type ReconcilePlanImpactResult,
+} from "./application/reconcile-plan-impact";
 export {
   assembleContextPlan,
   dedupeHits,

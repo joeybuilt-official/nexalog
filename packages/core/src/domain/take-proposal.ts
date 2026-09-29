@@ -27,6 +27,21 @@
  *     gbrain applies before it will let a writer touch a page.
  */
 
+/**
+ * `PlanDiff` and `PLAN_CHANGE_KIND` live in `./plan-impact` (the module that owns
+ * the plan-change rules); they are re-exported through this one so a reader asking
+ * "what can a proposal be?" finds the whole shape here.
+ *
+ * `plan_change` is deliberately NOT a member of `TAKE_KINDS` below. That list
+ * mirrors the set gbrain's extractor produces AND is the set a claim is coerced
+ * into when promoted to a take — widening it would make `plan_change` a promotable
+ * take kind. The two lists answer different questions: what the extractor writes,
+ * versus what this queue can hold.
+ */
+import type { PlanDiff } from "./plan-impact";
+export type { PlanDiff };
+export { PLAN_CHANGE_KIND } from "./plan-impact";
+
 /** The four canonical kinds gbrain's extractor emits. */
 export const TAKE_KINDS = ["fact", "take", "bet", "hunch"] as const;
 export type TakeKind = (typeof TAKE_KINDS)[number];
@@ -54,6 +69,13 @@ export interface TakeProposal {
   promotedRowNum: number | null;
   actedAt: Date | null;
   actedBy: string | null;
+  /**
+   * The structured payload of a `kind = 'plan_change'` proposal; null on every
+   * other kind (and on every row written before the column existed). Parsed
+   * defensively — see `parsePlanDiff` — so a hand-edited or foreign-written value
+   * degrades to null rather than reaching a render.
+   */
+  planDiff: PlanDiff | null;
 }
 
 /** Counts per status over the WHOLE queue, not just the returned page. */

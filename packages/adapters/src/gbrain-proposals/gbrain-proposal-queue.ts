@@ -65,6 +65,9 @@ import {
   ProposalQueue,
   ProposalQueueError,
   ProposalStatusCounts,
+  parsePlanDiff,
+  type ProposeInput,
+  type ProposeOutcome,
   type PromotedTake,
   type ProposalPage,
   type ProposalStatus,
@@ -75,7 +78,7 @@ import { nextTakeRowNum, promotionSource, unpromotableReason } from "@nexalog/co
 
 /** Columns the review surface needs — never `SELECT *` on a table we do not own. */
 const PROPOSAL_COLUMNS =
-  "id, source_id, page_slug, claim_text, kind, holder, weight, domain, status, proposed_at, model_id, promoted_row_num, acted_at, acted_by";
+  "id, source_id, page_slug, claim_text, kind, holder, weight, domain, status, proposed_at, model_id, promoted_row_num, acted_at, acted_by, plan_diff";
 
 /** Raw column shape as the driver returns it (bigint/real arrive as strings). */
 interface ProposalRow {
@@ -93,6 +96,11 @@ interface ProposalRow {
   promoted_row_num: number | string | null;
   acted_at: Date | string | null;
   acted_by: string | null;
+  /**
+   * The plan-change payload, nullable because every non-plan_change row on this
+   * shared table carries NULL. jsonb arrives already parsed by the driver.
+   */
+  plan_diff: unknown;
 }
 
 /**
@@ -117,6 +125,11 @@ function toProposal(row: ProposalRow): TakeProposal {
     promotedRowNum: row.promoted_row_num === null ? null : Number(row.promoted_row_num),
     actedAt: row.acted_at === null ? null : new Date(row.acted_at),
     actedBy: row.acted_by,
+    // `parsePlanDiff` rather than a cast: the column is unconstrained jsonb on a
+    // table gbrain and psql also write to, so a malformed value must degrade to
+    // "not a plan diff" (the card falls back to the claim) instead of throwing
+    // inside a list render.
+    planDiff: parsePlanDiff(row.plan_diff),
   };
 }
 
@@ -302,6 +315,89 @@ export class GbrainProposalQueue implements ProposalQueue {
         promoted: { pageSlug: existing.pageSlug, rowNum },
       };
     });
+  }
+
+  /**
+   * Emit one proposal, or report that an identical one already exists.
+   *
+   * IDEMPOTENCY IS THE DATABASE'S JOB HERE, and that is the whole design. The
+   * table already carries a unique index on
+   * `(source_id, page_slug, content_hash, prompt_version, md5(claim_text))` —
+   * gbrain's own guard against re-proposing the same claim from the same run — so
+   * this is `INSERT … ON CONFLICT DO NOTHING` plus a read-back of whichever row
+   * holds the key. A check-then-write would be strictly worse: two concurrent
+   * runs would both read "absent" and both insert, and the second insert would
+   * then fail as an unhandled unique violation instead of a reported duplicate.
+   *
+   * `ON CONFLICT DO NOTHING` returns zero rows on a conflict, which is why the
+   * read-back is a SEPARATE statement rather than a `RETURNING` clause: with
+   * `DO NOTHING`, `RETURNING` yields nothing on the conflict path and there would
+   * be no row to hand back. The read-back is safe — nothing else can move a
+   * `pending` row into existence and out again inside the window that matters —
+   * and it is scoped to the exact key so it can only ever return OUR row.
+   *
+   * No `gbrain.write_sources` GUC is set: that protocol is enforced by the
+   * `managed_writer_guard` trigger, which fires on `facts`, `pages`, `takes` and
+   * `timeline_entries` only (verified against the live catalog). `take_proposals`
+   * is outside the fence — it IS the proposal channel, which is precisely why a
+   * second writer may emit into it without coordinating a page write.
+   */
+  async propose(input: ProposeInput): Promise<ProposeOutcome> {
+    const inserted = await this.query<ProposalRow[]>`
+      INSERT INTO take_proposals (
+        source_id, page_slug, content_hash, prompt_version, wave_version,
+        proposal_run_id, claim_text, kind, holder, weight, domain, model_id, plan_diff
+      )
+      VALUES (
+        ${input.sourceId},
+        ${input.pageSlug},
+        ${input.contentHash},
+        ${input.promptVersion},
+        ${input.waveVersion},
+        ${input.runId},
+        ${input.claimText},
+        ${input.kind},
+        ${input.holder},
+        ${input.weight},
+        ${input.domain},
+        ${input.modelId},
+        ${input.planDiff ? this.query.json(input.planDiff as never) : null}
+      )
+      ON CONFLICT (source_id, page_slug, content_hash, prompt_version, md5(claim_text))
+      DO NOTHING
+      RETURNING ${this.query.unsafe(PROPOSAL_COLUMNS)}`;
+
+    if (inserted.length > 0) {
+      return { created: true, proposal: toProposal(inserted[0]) };
+    }
+
+    // The conflict path: a row with this exact key exists (pending, accepted,
+    // rejected — all four statuses collide, because re-proposing a claim the
+    // operator already rejected is not a new decision to put in front of them).
+    const existing = await this.query<ProposalRow[]>`
+      SELECT ${this.query.unsafe(PROPOSAL_COLUMNS)}
+        FROM take_proposals
+       WHERE source_id = ${input.sourceId}
+         AND page_slug = ${input.pageSlug}
+         AND content_hash = ${input.contentHash}
+         AND prompt_version = ${input.promptVersion}
+         AND md5(claim_text) = md5(${input.claimText})
+       LIMIT 1`;
+
+    if (existing.length === 0) {
+      // Reachable only under a concurrent DELETE of the row between the insert and
+      // this read. Reported rather than papered over: silently returning a
+      // fabricated proposal would tell the caller it produced a row it did not.
+      throw new ProposalQueueError({
+        code: "not_found",
+        proposalId: 0,
+        message:
+          `Proposal for page '${input.pageSlug}' conflicted on insert but is no longer present — ` +
+          `it was deleted concurrently. Re-run the reconcile pass.`,
+      });
+    }
+
+    return { created: false, proposal: toProposal(existing[0]) };
   }
 
   private async loadProposal(id: number): Promise<TakeProposal | null> {
