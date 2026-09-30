@@ -196,7 +196,15 @@ export class FsGitBrainStore implements BrainStore {
 
   /** Cross-process exclusion via a lockfile (Nexalog vs Hermes vs human). */
   private async withLock<T>(fn: () => Promise<T>): Promise<T> {
-    await fs.mkdir(path.dirname(this.lockfile), { recursive: true });
+    try {
+      await fs.mkdir(path.dirname(this.lockfile), { recursive: true });
+    } catch (err) {
+      // A failure here is almost always ownership/permissions on the brain repo,
+      // never contention — report it as such instead of letting it fall through
+      // to the lock-timeout message below, which names the wrong cause.
+      throw this.lockFault(err);
+    }
+
     // Spin-acquire with a bounded wait (single-writer window is tiny).
     const deadline = Date.now() + 10_000;
     for (;;) {
@@ -205,9 +213,26 @@ export class FsGitBrainStore implements BrainStore {
         await handle.writeFile(`${process.pid}\n`);
         await handle.close();
         break;
-      } catch {
+      } catch (err) {
+        // `wx` fails with EEXIST when the lock is genuinely held — the ONE
+        // retryable case. It ALSO fails with EACCES/EPERM/EROFS when this
+        // process simply cannot create files in the repo at all, and swallowing
+        // that second class turns a permissions fault into a 10s spin followed
+        // by a message naming the wrong cause: the operator sees "Timed out
+        // waiting for brain-repo write lock" for a repo where no lockfile
+        // exists and no other writer is running, and hunts for contention
+        // instead of ownership. That masking hid a real capture outage for
+        // days, so only EEXIST spins now; every other errno surfaces at once,
+        // with the errno and the path intact.
+        const code = (err as NodeJS.ErrnoException)?.code;
+        if (code !== "EEXIST") {
+          throw this.lockFault(err);
+        }
         if (Date.now() > deadline) {
-          throw new Error("Timed out waiting for brain-repo write lock");
+          throw new Error(
+            `Timed out waiting for brain-repo write lock at ${this.lockfile} ` +
+              "(another writer holds it — the lock is stale only if the file exists and its owner is gone)",
+          );
         }
         await new Promise((r) => setTimeout(r, 25));
       }
@@ -217,6 +242,29 @@ export class FsGitBrainStore implements BrainStore {
     } finally {
       await fs.unlink(this.lockfile).catch(() => undefined);
     }
+  }
+
+  /**
+   * Turn a lockfile-acquisition failure into an actionable error. The errno is
+   * preserved because it is the whole diagnosis: EACCES/EPERM means the brain
+   * repo is not writable by this process's uid (the usual cause is the repo
+   * being owned by a different user than the app runs as), EROFS means a
+   * read-only mount, and ENOSPC/EDQUOT mean the volume is full.
+   */
+  private lockFault(err: unknown): Error {
+    const e = err as NodeJS.ErrnoException;
+    const code = e?.code ?? "UNKNOWN";
+    const hint =
+      code === "EACCES" || code === "EPERM"
+        ? "the brain repo (or its .nexalog directory) is not writable by this process — check the ownership of the repo root against the uid the app runs as"
+        : code === "EROFS"
+          ? "the brain repo is on a read-only mount"
+          : code === "ENOSPC" || code === "EDQUOT"
+            ? "the volume holding the brain repo is out of space or over quota"
+            : "an unexpected filesystem error occurred acquiring the lock";
+    return new Error(
+      `Cannot acquire the brain-repo write lock at ${this.lockfile}: ${code} — ${hint}`,
+    );
   }
 
   private async commit(message: string): Promise<void> {
