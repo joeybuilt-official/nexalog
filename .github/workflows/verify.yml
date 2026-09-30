@@ -61,6 +61,12 @@ jobs:
         run: sh scripts/check-docs.sh --since "${{ github.event.pull_request.base.sha }}"
         if: github.event_name == 'pull_request'
 
+      # The plan-spine home check, per the Panoply kit: a plan is a roadmap row
+      # plus docs/claude/<area>/<feature>/plan.md — a stray PLAN.md / <x>-plan.md
+      # elsewhere is stale by definition. Shipped by the kit adoption.
+      - name: Plan home
+        run: sh scripts/check-plan-home.sh
+
       - name: Typecheck
         run: pnpm typecheck
 
