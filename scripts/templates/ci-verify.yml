@@ -17,13 +17,14 @@
 #      this once someone with admin auth runs it. Until step 2, this workflow reports but does not
 #      block — see AGENTS.md → "Enforcement — the honest version".
 #
-# NOT WIRED, deliberately: `scripts/check-expert-review.sh`. It requires a `checklist.md` with pending
-# items under `docs/claude/`; nexalog keeps its checklists at the repo root instead, so the gate can
-# never pass as written. Either move the checklists under `docs/claude/<area>/<slug>/` (where they
-# belong per PANOPLY-OPTIMIZATION.md §1) or leave this step out.
+# NOT WIRED, deliberately: `scripts/check-expert-review.sh`. The script is current (re-synced to the
+# kit's fixed body) and would pass on this repo today — a `plan.md` and a `checklist.md` with pending
+# items both exist under `docs/claude/`. It is left out because enabling it would silently add a merge
+# requirement for every future PR, which is an operator decision. The earlier note here ("the gate can
+# never pass as written — nexalog keeps its checklists at the repo root") is obsolete: those
+# checklists moved into `docs/claude/<area>/<slug>/`.
 #
-# NOT WIRED: an architecture-boundary check. There is no `.dependency-cruiser.cjs` and no `depcruise`
-# script here. Adding one is worthwhile — see `.claude/rules/clean-architecture.md` → "Known gaps".
+# WIRED 2026-09-25: the architecture-boundary check (`pnpm depcruise`, config `.dependency-cruiser.cjs`).
 
 name: verify
 on:

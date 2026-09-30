@@ -42,7 +42,7 @@ This counter-rule matters as much as the rules above. Defensive code between you
 ## Log with enough context to debug
 
 - Every logged error includes: what operation was running (route/job/handler name), the identifying inputs (record ids, not full payloads), and the underlying error message and stack. A log line that says only `Error: request failed` costs an hour of bisecting.
-- Log through `lib/logger.ts` (`logEvent` — structured JSON lines), not bare `console.log` calls. The observability backend is Plexo when present — there is no Sentry or PostHog, and no second error-reporting vendor may be added.
+- **Log through `lib/logger.ts` (`logEvent` — structured JSON lines), not bare `console.log`.** The observability backend is Plexo when present; there is no Sentry, no PostHog, and no second error-reporting vendor may be added.
 - Never log secrets, tokens, passwords, full auth headers, or personal data. Log the id, not the record.
 - Log the error where you have the context, once. The same failure logged at four levels of the stack makes the real one harder to find.
 
@@ -50,7 +50,7 @@ This counter-rule matters as much as the rules above. Defensive code between you
 
 **Every user-facing operation that fails must surface the failure to whoever initiated it, and log it.** In a UI, that means a visible error state; in a headless service, the "user" is the caller, and the failure maps to the typed error response — never a swallowed exception, never success-with-nothing-happened.
 
-- In the UI this covers API calls, form submissions, auth flows, uploads, background refreshes, optimistic updates, and streamed responses. Visible means the user can tell the operation failed and what to do next: an inline message, an error state on the component, or a toast - not a spinner that never resolves and not a screen that silently keeps stale data.
+- In the UI this covers API calls, form submissions, auth flows, uploads, background refreshes, optimistic updates, and streamed responses. Visible means the user can tell the operation failed and what to do next: an inline message, an error state on the component, or a toast — not a spinner that never resolves and not a screen that silently keeps stale data.
 - A rejected promise with no catch, a catch that only logs, and a loading flag that is never cleared on failure are all the same bug: the user is lied to about the state of their data.
 - Optimistic updates must roll back on failure, and say they rolled back. Leaving the optimistic value on screen after the write failed means the user believes something was saved that was not.
 - If a background operation fails and its initiator cannot act on it, it still gets logged with full context — but say plainly in your change description that it is intentionally silent, so the choice is reviewed rather than assumed.

@@ -27,8 +27,7 @@ alwaysApply: true
   done. `scripts/check-docs.sh` is the landing gate; `--since REF` checks every commit individually,
   so **amend, don't follow up**.
 - **Plans live in the repo, never at workspace root.** A plan is a row in `docs/claude/roadmap.md`,
-  with depth in `docs/claude/<area>/<slug>/plan.md` (see `PANOPLY-OPTIMIZATION.md`).
-  ADRs live in `adr/NNNN-slug.md`.
+  with depth in `docs/claude/<area>/<slug>/plan.md`. ADRs live in `adr/NNNN-slug.md`.
 - **Clean Architecture is mandatory.** Dependencies point inward only; business rules import no
   framework / ORM / HTTP client / vendor SDK; external concerns sit behind a **port** with an adapter
   at the edge. `lib/intelligence/` (IntelligencePort + embedded/Plexo adapters) is the reference
@@ -36,6 +35,28 @@ alwaysApply: true
   co-located in the same `lib/<feature>/` file and some `app/api/**` handlers still hold business
   logic. New code follows the target, and a new outward-pointing dependency is a defect even where
   older ones survive.
+
+### First touch — the kit is already adopted here; keep it current before you modify anything
+
+**Nexalog carries the Panoply kit. Verify it before you write — do not assume, and do not work around
+a stale copy.** The kit's own machine surface is a shell script any harness can run (Hermes, Codex,
+Cursor, CI — not just Claude):
+
+    sh scripts/panoply.sh check          # 0 current · 10 not applied · 11 partial · 12 stale
+                                         # 13 unadapted (placeholders left) · 14 mirrors drifted
+
+A non-zero result means **stop and fix the kit state first — it IS the first batch of work**:
+
+    sh scripts/panoply.sh apply          # deterministic seeding + the agent checklist
+    sh scripts/sync-agents.sh            # regenerate every tool mirror AFTER editing modules
+    sh scripts/panoply.sh check          # must exit 0 before other work begins
+
+Do the judgement half the checklist names (fill every `{{TOKEN}}` from this repo's OWN manifests,
+prune the `MODULE:` blocks that do not apply, merge — never overwrite — `CLAUDE.md`/`AGENTS.md`).
+A half-applied kit fails its own doc gate and looks like a doc bug, so finish it or revert it; do not
+leave it partial. `PANOPLY_OFF=1` exists for a deliberate exception — say plainly that you used it, so
+the choice is reviewed rather than assumed. **Never stamp a version without the regeneration it
+implies**: `.panoply-version` is only true once `sync-agents.sh` has run over the reconciled modules.
 
 ### MUST NOT — hard guardrails
 

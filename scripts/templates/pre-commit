@@ -4,9 +4,8 @@
 #
 # HONEST NOTE: a client-side hook is convenience, not enforcement — any agent can bypass it with
 # `git commit --no-verify`, and a non-Claude agent may not run it at all. The binding plane is
-# required CI (`scripts/templates/ci-verify.yml`). Nexalog has neither today, which is why running
-# these gates by hand before every commit is currently the only thing standing between a change and
-# `main`.
+# required CI (`.github/workflows/verify.yml`, which is wired and is a required check on `main`).
+# This hook just catches a problem a few seconds earlier for whoever keeps it installed.
 #
 # Commands below match AGENTS.md → Commands and nexalog's real package.json scripts.
 set -eu
@@ -30,8 +29,15 @@ if [ -f scripts/check-docs.sh ]; then
   echo "pre-commit: docs gate…"; sh scripts/check-docs.sh
 fi
 
-# Expert-review gate — NOT viable in nexalog: it requires a checklist.md with pending items under
-# docs/claude/, and this repo keeps its checklists at the root instead. See ci-verify.yml's header.
+# Plan-home gate — a plan doc may only live in the allowed home (a row in docs/claude/roadmap.md,
+# depth at docs/claude/<area>/<slug>/plan.md). Wired 2026-09-30; also runs in required CI.
+if [ -f scripts/check-plan-home.sh ]; then
+  echo "pre-commit: plan home…"; sh scripts/check-plan-home.sh --staged
+fi
+
+# Expert-review gate — NOT wired, deliberately. The script is current and would pass, but enabling it
+# adds a merge requirement for every future PR: an operator decision, not a side effect of a refresh.
+# See `.github/workflows/verify.yml`'s header for the full note.
 # if [ -f scripts/check-expert-review.sh ]; then
 #   echo "pre-commit: expert review…"; sh scripts/check-expert-review.sh
 # fi

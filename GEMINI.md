@@ -22,8 +22,7 @@
   done. `scripts/check-docs.sh` is the landing gate; `--since REF` checks every commit individually,
   so **amend, don't follow up**.
 - **Plans live in the repo, never at workspace root.** A plan is a row in `docs/claude/roadmap.md`,
-  with depth in `docs/claude/<area>/<slug>/plan.md` (see `PANOPLY-OPTIMIZATION.md`).
-  ADRs live in `adr/NNNN-slug.md`.
+  with depth in `docs/claude/<area>/<slug>/plan.md`. ADRs live in `adr/NNNN-slug.md`.
 - **Clean Architecture is mandatory.** Dependencies point inward only; business rules import no
   framework / ORM / HTTP client / vendor SDK; external concerns sit behind a **port** with an adapter
   at the edge. `lib/intelligence/` (IntelligencePort + embedded/Plexo adapters) is the reference
@@ -31,6 +30,28 @@
   co-located in the same `lib/<feature>/` file and some `app/api/**` handlers still hold business
   logic. New code follows the target, and a new outward-pointing dependency is a defect even where
   older ones survive.
+
+### First touch — the kit is already adopted here; keep it current before you modify anything
+
+**Nexalog carries the Panoply kit. Verify it before you write — do not assume, and do not work around
+a stale copy.** The kit's own machine surface is a shell script any harness can run (Hermes, Codex,
+Cursor, CI — not just Claude):
+
+    sh scripts/panoply.sh check          # 0 current · 10 not applied · 11 partial · 12 stale
+                                         # 13 unadapted (placeholders left) · 14 mirrors drifted
+
+A non-zero result means **stop and fix the kit state first — it IS the first batch of work**:
+
+    sh scripts/panoply.sh apply          # deterministic seeding + the agent checklist
+    sh scripts/sync-agents.sh            # regenerate every tool mirror AFTER editing modules
+    sh scripts/panoply.sh check          # must exit 0 before other work begins
+
+Do the judgement half the checklist names (fill every `{{TOKEN}}` from this repo's OWN manifests,
+prune the `MODULE:` blocks that do not apply, merge — never overwrite — `CLAUDE.md`/`AGENTS.md`).
+A half-applied kit fails its own doc gate and looks like a doc bug, so finish it or revert it; do not
+leave it partial. `PANOPLY_OFF=1` exists for a deliberate exception — say plainly that you used it, so
+the choice is reviewed rather than assumed. **Never stamp a version without the regeneration it
+implies**: `.panoply-version` is only true once `sync-agents.sh` has run over the reconciled modules.
 
 ### MUST NOT — hard guardrails
 
@@ -159,27 +180,59 @@ This repo's layout is root-level — `app/`, `components/`, and `lib/` sit at th
 
 | Layer | Directory in this project | Import rule |
 | --- | --- | --- |
-| Entities / Domain | the domain rules inside the feature-sliced `lib/<feature>/` modules (`lib/notes/`, `lib/projects/`, `lib/review/`, `lib/time/`, `lib/tags/`, `lib/capture/`, …) | Imports nothing from the three rows below. No framework, ORM, HTTP, or SDK imports at all. |
+| Entities / Domain | the domain rules inside the feature-sliced `lib/<feature>/` modules (`lib/notes/`, `lib/projects/`, `lib/review/`, `lib/time/`, `lib/tags/`, `lib/capture/`, …). The one physically separated domain layer is `packages/core/src/domain/` (+ `packages/core/src/application/` for use cases and `packages/core/src/ports/`) — treat that package as the reference for what "pulled inward" looks like | Imports nothing from the three rows below. No framework, ORM, HTTP, or SDK imports at all. |
 | Use Cases / Application | the orchestration inside the same `lib/<feature>/` slices; ports are declared here — `lib/intelligence/port.ts` (IntelligencePort) is the reference example | Imports the domain rules of the feature slices only. Declares its ports here. |
 | Interface Adapters | `app/api/<area>/route.ts` route handlers, `app/**` pages and route groups, `components/`, `middleware.ts` | Imports the two above. Implements the ports; owns DTOs and mappers. |
-| Frameworks & Drivers | `lib/db/` (Drizzle client + schema), `lib/env.ts`, `instrumentation.ts`, vendor clients (`lib/plexo.ts`, `lib/r2.ts`, `lib/stripe/`), and the intelligence adapters (`lib/intelligence/embedded-adapter.ts`, `lib/intelligence/plexo-adapter.ts`) | May import anything. Nothing imports it except the composition root. |
+| Frameworks & Drivers | `lib/db/` (Drizzle client + schema), `lib/env.ts`, `instrumentation.ts`, vendor clients (`lib/plexo.ts`, `lib/r2.ts`, `lib/stripe/`), and the intelligence adapters (`lib/intelligence/embedded-adapter.ts`, `lib/intelligence/plexo-adapter.ts`); the adapter package is `packages/adapters/` | May import anything. Nothing imports it except the composition root. |
 
-**Multiple apps:** this repo ships a second deployable app — the Flutter client under `mobile/`. The four-row map above covers the TypeScript app only; `mobile/` gets its own map and is not forced into this one.
+**Multiple apps:** this repo ships a second deployable app — the Flutter client under `mobile/` — and a workspace monorepo (`pnpm-workspace.yaml`: `.`, `packages/*`, `apps/*`). The four-row map above covers the TypeScript app; `packages/core` carries its own (pure) map and is policed by its own gate rules, and `mobile/` gets its own map rather than being forced into this one.
 
-**Known gaps (honest state):** Clean Architecture here is a *target with documented gaps*. Business rules and I/O are frequently co-located inside the same `lib/<feature>/` file, and some `app/api/**` route handlers still hold business logic that belongs in a slice. `lib/intelligence/` is the port that is genuinely right: IntelligencePort with two adapters — an embedded adapter (direct provider via raw `fetch`, no SDK) as the standalone baseline, and a Plexo adapter that supersedes it when Plexo is present and authorized (ADR-0014/0015/0017). New code follows the target; a new outward-pointing dependency is a defect even where older ones survive. **The import-boundary gate landed 2026-09-25**: `.dependency-cruiser.cjs` + `pnpm depcruise` run in `verify` CI and the pre-commit template. `error` rules block a change: `core-is-pure` (anything under `packages/core` import nothing — npm, node builtins, or unresolved bare specifiers), `core-no-outer-layers` / `adapters-no-apps` (dependencies point inward only), and `web-lib-no-ui` (`lib/<feature>` never imports `app/`, `components/`, or `middleware.ts`). `web-lib-no-direct-db` is baselined as **`warn`** with these nine known call sites — the ratchet list to convert to `error` once storage moves behind ports: `lib/workspace.ts`, `lib/transcription/index.ts`, `lib/today/cards-data.ts`, `lib/themes/forest.ts`, `lib/projects/store.ts`, `lib/notes/wikilinks.ts`, `lib/export/load.ts`, `lib/enrichment/reader.ts`, `lib/enrichment/metadata.ts`. Everything else in the checklist below (vendor types in slices, DTO boundaries, port + test-double pairing) is not mechanically checkable per-diff and stays review-only.
+**Known gaps (honest state):** Clean Architecture here is a *target with documented gaps*. Business rules and I/O are frequently co-located inside the same `lib/<feature>/` file, and some `app/api/**` route handlers still hold business logic that belongs in a slice. `lib/intelligence/` is the port that is genuinely right: IntelligencePort with two adapters — an embedded adapter (direct provider via raw `fetch`, no SDK) as the standalone baseline, and a Plexo adapter that supersedes it when Plexo is present and authorized (ADR-0014/0015/0017). New code follows the target; a new outward-pointing dependency is a defect even where older ones survive. **The import-boundary gate landed 2026-09-25**: `.dependency-cruiser.cjs` + `pnpm depcruise` run in `verify` CI and the pre-commit template. `error` rules block a change: `core-is-pure` (anything under `packages/core` imports nothing — npm, node builtins, or unresolved bare specifiers), `core-no-outer-layers` / `adapters-no-apps` (dependencies point inward only), and `web-lib-no-ui` (`lib/<feature>` never imports `app/`, `components/`, or `middleware.ts`). `web-lib-no-direct-db` is baselined as **`warn`** with these nine known call sites — the ratchet list to convert to `error` once storage moves behind ports: `lib/workspace.ts`, `lib/transcription/index.ts`, `lib/today/cards-data.ts`, `lib/themes/forest.ts`, `lib/projects/store.ts`, `lib/notes/wikilinks.ts`, `lib/export/load.ts`, `lib/enrichment/reader.ts`, `lib/enrichment/metadata.ts`. Everything else in the checklist below (vendor types in slices, DTO boundaries, port + test-double pairing) is not mechanically checkable per-diff and stays review-only.
 
 **The gate asserts its own coverage (2026-09-25).** `pnpm depcruise` runs `scripts/check-architecture.mjs`, which cruises with dependency-cruiser, renders dependency-cruiser's own violation report (identical text and exit code to a bare run), and then verifies the cruise actually saw the codebase. This matters because dependency-cruiser **degrades silently**: with the root `typescript` dependency absent it cruised **3 modules out of ~274**, reported "✔ no dependency violations found", and exited 0 — a green gate with zero coverage and no signal. Nothing in the repo asserted coverage, so nothing caught it. The wrapper now fails loudly, printing observed counts, when: root `typescript` does not resolve, `tsconfig.depcruise.json` is missing, the cruise yields no result, coverage of tracked sources drops below 90% (a ratio, deliberately not an exact module count — a healthy cruise reports 274 modules locally and 273 in CI on the same commit), any tracked file under a policed layer (`packages/core`, `packages/adapters`, `apps/web/lib`) was not cruised, or a key area contributed no modules. **Every exclude entry in `.dependency-cruiser.cjs` → `options.exclude.path` is an unanchored regex matched against the whole path**, so a bare `build` also excludes `lib/export/build-archive.ts` (this had silently retired a policed file) and a bare `mobile` excludes `components/mobile-bottom-nav.tsx` — entries are anchored `(^|/)…(/|$)`, the guard reports how many tracked sources the excludes retired, and `sh scripts/self-test-arch-gate.sh` re-proves all of this against the real gate (dev-only; never wire it into CI).
+
+## Enforcement — the gate, not just the checklist
+
+The review checklist below is the human pass. Dependency direction is *also* checked **mechanically**,
+so a violation fails a command instead of resting on a reviewer noticing it. This is the one guardrail
+that binds every contributor equally — a human, or any AI agent in any tool — but **only once it runs
+in required CI**: a client-side pre-commit hook is skippable with `--no-verify` and a non-Claude agent
+may never run it, so CI is the plane that actually holds.
+
+- **The tool, per stack (name it, do not hand-roll it):** JS/TS → dependency-cruiser (`forbidden`
+  rules); Python → import-linter (`layers` contract); JVM → ArchUnit (`layeredArchitecture()`);
+  Go → go-arch-lint or `depguard`; .NET → NetArchTest; Rust → module visibility + `cargo-deny`. Each
+  encodes the same table under "This project's layers": no inner layer may import an outer one.
+  **Nexalog uses dependency-cruiser**, config `.dependency-cruiser.cjs`, driven by the
+  `scripts/check-architecture.mjs` coverage wrapper.
+- **When it runs:** `pnpm depcruise` runs in the pre-commit gate beside typecheck and test
+  (`git-workflow.md`) and — the binding copy — as a **required** CI check
+  (`.github/workflows/verify.yml`, installed from `scripts/templates/ci-verify.yml`). Green is the only
+  passing score; no agent may merge past it red.
+- **Report-only ramp for a non-conforming repo:** if the layer map still has `target:` rows (business
+  logic in controllers, ORM models imported inward), start the linter in **report-only** mode so the
+  violation count is visible without blocking, then flip it to blocking once the count reaches zero.
+  This is exactly where the check earns its keep — do not skip it on the messy repos that need it most.
+  **Nexalog sits on the second half of that ramp:** the `error` rules are blocking and currently clean;
+  the nine `web-lib-no-direct-db` call sites above are the report-only remainder, and each one is a
+  candidate to move behind a port — never a reason to relax the rule.
+- **Wiring:** the kit NAMES this gate and CHECKS for it (`/audit-claude-setup` Check 6); it does not
+  generate a layout-coupled config for you. Use your stack's tool (or the `arch-enforce` skill if you
+  have it) to create the config from the filled layer map, then set the command to its invocation.
+  That is already done here — the config exists and the wrapper is the invocation. **Never replace the
+  wrapper with a bare `depcruise` call**: the wrapper is what stops a silently-degraded cruise from
+  reporting green (see "The gate asserts its own coverage" above).
 
 ## Review checklist
 
 Run against any diff. Each item is pointable: a reviewer can highlight a line and say "this violates item N."
 
-1. **Import direction.** No domain rule or use case inside a `lib/<feature>/` slice imports from `app/api/`, `app/**` pages, `components/`, `middleware.ts`, or `lib/db/`; no slice imports another slice's adapters. Read the diff's import block first - it is the fastest violation to spot. *Automated 2026-09-25*: `pnpm depcruise` (`.dependency-cruiser.cjs`) turns item 1 into a CI failure — `web-lib-no-ui` is an `error` (currently clean), `web-lib-no-direct-db` is a baselined `warn` awaiting the ratchet list above. The gate also asserts its own coverage (`scripts/check-architecture.mjs`): a cruise that silently saw almost nothing of the tree now **fails** instead of reporting "no violations", so a green run means the rule was actually evaluated against the codebase.
-2. No framework, ORM, HTTP, SDK, or env import appears in the domain rules or use-case code of a `lib/<feature>/` slice - including decorators, annotations, and type-only imports, which still bind those layers to a vendor's shape and release cycle. (`lib/env.ts` is read at the edge, never inward.)
+1. **Import direction.** No domain rule or use case inside a `lib/<feature>/` slice imports from `app/api/`, `app/**` pages, `components/`, `middleware.ts`, or `lib/db/`; no slice imports another slice's adapters. Nothing under `packages/core` imports anything at all. Read the diff's import block first — it is the fastest violation to spot. *Automated by the Enforcement gate above*: `pnpm depcruise` (`.dependency-cruiser.cjs`) turns item 1 into a CI failure — `core-is-pure`, `core-no-outer-layers`, `adapters-no-apps` and `web-lib-no-ui` are `error` (currently clean); `web-lib-no-direct-db` is a baselined `warn` awaiting the ratchet list above. The gate also asserts its own coverage (`scripts/check-architecture.mjs`): a cruise that silently saw almost nothing of the tree now **fails** instead of reporting "no violations", so a green run means the rule was actually evaluated against the codebase.
+2. No framework, ORM, HTTP, SDK, or env import appears in the domain rules or use-case code of a `lib/<feature>/` slice — including decorators, annotations, and type-only imports, which still bind those layers to a vendor's shape and release cycle. (`lib/env.ts` is read at the edge, never inward.)
 3. No domain type carries a persistence, validation-library, or serialization annotation.
 4. No use case accepts or returns a framework request/response, a status code, or a transport-shaped envelope.
-5. Every conditional that encodes a business rule lives in a `lib/<feature>/` slice - not in a controller, a UI component, a database trigger, or an ORM lifecycle hook.
-6. Every I/O the core needs sits behind a port declared in the feature slice (the pattern to copy: `lib/intelligence/port.ts`) and implemented in an adapter (`lib/intelligence/embedded-adapter.ts`, `lib/intelligence/plexo-adapter.ts`) or at the route boundary - including clock, random/ID generation, and outbound HTTP. Those three are I/O, and skipping them is the usual reason a test needs a real timer or network.
+5. Every conditional that encodes a business rule lives in a `lib/<feature>/` slice — not in a controller, a UI component, a database trigger, or an ORM lifecycle hook.
+6. Every I/O the core needs sits behind a port declared in the feature slice (the pattern to copy: `lib/intelligence/port.ts`) and implemented in an adapter (`lib/intelligence/embedded-adapter.ts`, `lib/intelligence/plexo-adapter.ts`) or at the route boundary — including clock, random/ID generation, and outbound HTTP. Those three are I/O, and skipping them is the usual reason a test needs a real timer or network.
 7. Every new use case has a test that runs against fakes only — no container, database, server, or network. If it cannot, item 6 was missed.
 8. Data crossing a boundary is a DTO, the mapper sits in the outer layer, and no domain entity is serialized to the wire or handed to an ORM's reflection.
 9. Validation is on both sides and neither substitutes for the other: shape and format at the adapter, invariants in the entity or use case.
@@ -188,31 +241,78 @@ Run against any diff. Each item is pointable: a reviewer can highlight a line an
 
 ---
 
-# Workflow: Change Approval and Planning
+# Workflow: Change Approval & Planning
 
-> **Applies when:** always. This is Nexalog's collaboration protocol.
-> **Delete this file:** never.
+> **Applies when:** always — this is the baseline collaboration protocol for every project.
+> **Delete this file (and its `@` import in CLAUDE.md) if:** never. If you disagree with a rule, edit it; do not delete the module.
 
-## Change approval
+## Pre-flight — before any proposal
 
-- **Strict protocol:** describe the proposed changes, files, layers, and reason before editing; wait for approval unless the user explicitly authorized the edit in the request.
-- State the root-cause hypothesis for fixes instead of silently assuming it.
-- Name the layers touched: Entities/Domain, Use Cases/Application, Interface Adapters, or Frameworks and Drivers.
-- If a dependency would point outward, raise it before writing the change.
-- Surface second problems instead of folding unrelated work into the approved change.
+You cannot propose a change to a repo whose state you have not read. Before planning anything:
 
-## Planning workflow
+- `git fetch --prune`, then survey branches, worktrees, and open PRs (`git branch -a`, `git worktree list`, `gh pr list --state open`).
+- Read the central plan doc (`docs/claude/roadmap.md` in kit repos; the repo's one plan doc where the adapt has set a lighter one), the running worklog, and only then the code you are about to change.
+- **Carry forward in-flight work** — continue the queued task or the open PR; never open a parallel track for work already in progress. (Full mechanics: `git-workflow.md` → Pre-flight.)
 
-- Enter plan mode before non-trivial or multi-step work.
-- Persist plans under `docs/claude/` using `docs/claude/_templates/plan.md`.
-- Put plans in the relevant area folder, not flat at the docs root, and link them from `docs/claude/in-progress.md`.
-- Re-read the plan at each milestone and record deviations with a `Build note`.
-- If the work materially differs from the plan, stop and re-plan.
+## Change Approval
 
-## Before proposing
+- **Describe your proposed changes and get approval before editing code.** State what you plan to change, which files, and why — then stop and wait for confirmation. Editing first and explaining after removes the user's only cheap moment to redirect you.
+- **Write the plan into the plan doc and present it before code.** The plan states the goal in one sentence, the phases, and the exit criteria, and it is presented to the owner for an explicit yes/no — in plain language, written for a non-technical reader. A plan that lives only in the chat summary was never approved.
+- **This applies to bug fixes exactly as much as to features.** "It's just a fix" is the most common excuse for skipping approval, and fixes are where wrong assumptions do the most damage.
+- **Never assume the root cause. State your hypothesis and let the user confirm or redirect.** Say "I believe X is happening because Y — do you want me to fix it there?" rather than silently fixing what you guessed. The user usually knows something about the system you cannot see from the code, and a confident wrong diagnosis costs a full rewrite.
+- **Name the layers the change touches** — Entities/Domain, Use Cases/Application, Interface Adapters, Frameworks & Drivers (see `clean-architecture.md`). A proposal written as a list of file paths hides the one thing worth catching early: which way the new dependencies point.
+- **If the change would point a dependency outward, raise it before you write it, not after.** At proposal time it is a sentence and a redesign; once the code exists and works, nobody rewrites working code to fix an import direction, and the violation becomes permanent.
+- When you find a second problem while fixing the first, surface it — do not fold it into the current change without asking. Scope creep smuggled into an approved change is unreviewable.
+- **When the decision is genuinely the owner's, present it as two options plus a recommendation — never as a prose block.** Tappable, decidable in one read: what each option is, what it costs now and later, and which one you recommend and why (`quality-bar.md`). Do not start on either option while the question is open.
 
-Run the self-check in `quality-bar.md` before describing a structural change. Name the tradeoff, the recommendation, and the dependency direction.
+### What counts as trivial (no approval needed)
 
+Proceed directly, and mention what you did afterward, when the change is:
+
+- A typo, comment, or string fix with no behavioral effect.
+- A one-line change the user explicitly described and asked you to make.
+- Formatting, import ordering, or lint autofixes.
+- Adding a log line or assertion to diagnose something, with no production behavior change.
+- Any change fully contained in a file you were just asked to write.
+
+Everything else — new files, new dependencies, schema/API/interface changes, anything touching more than one file, anything you would need a paragraph to explain — needs approval first. When in doubt, ask; asking costs one message, a wrong rewrite costs an hour.
+
+This carve-out is itself a setting: a project that chose the **strict** protocol at adapt time deletes the list above, and every change — trivial or not — gets described and approved first.
+
+## Planning Workflow
+
+- **A plan is a roadmap row first, never a new directory.** The moment you start work, add a row to the project's `docs/claude/roadmap.md` (Now/Next/Later) — in the same session, even if that row is the only artifact and the plan dies the same day. A dead roadmap row beats a lost plan. Never create a top-level `<name>-plan/`, `<name>-specs/`, or `scratch_*` plan directory; that scatter is exactly what this rule eliminates. Deeper detail goes in `docs/claude/<area>/<slug>/plan.md` inside the repo, linked from the row.
+- **The plan doc is the SINGLE place every agent reads and edits plans.** A kit repo's plan home is the `docs/claude/` spine: `roadmap.md` (the single canonical plan doc) with per-task fragments under `docs/claude/in-progress.d/` or area plan docs linked from it. A project too small for that spine may keep ONE lightweight `docs/PLAN.md` (a status table + the worklog) as its plan home — same rule, fewer pieces. What is never the plan home: a root-level `PLAN.md` (that is the stray `check-plan-home.sh` exists to reject), a second parallel plan doc, and **GitHub Issues** — an issue is a note that gets folded into the plan doc, never the doc itself. Before planning anything, read it; when you plan anything, write there. `scripts/check-plan-home.sh` enforces this in CI and pre-commit (`PLAN_HOME_ALLOW` for a legitimate exception, `PLAN_HOME_OFF=1` while adopting a repo with a backlog).
+
+- **Enter plan mode before any non-trivial or multi-step work.** Any feature, milestone, or task spanning more than a couple of files starts with a plan — use the planning tool, not an informal chat summary, so the plan is an artifact rather than a paragraph that scrolls away. Present it to the owner (plain language, above) and let the plan — not the chat memory — be what was approved.
+- **ALWAYS persist the plan to a file under `docs/claude/`.** A plan that exists only in chat context dies at the next compaction, and you will silently resume with a different plan than the one that was approved. The file is the source of truth; the chat is not.
+  - Copy `docs/claude/_templates/plan.md` as the starting point.
+  - Write it into the relevant area folder, not flat in `docs/claude/` — e.g. `docs/claude/<area>/<feature>/plan.md`. See `docs/claude/_templates/feature-area/README.md` for the folder convention.
+  - Link the new plan from `docs/claude/in-progress.md` in the same step, or nobody will find it.
+- **When a milestone splits into sub-milestones, do not overwrite the parent plan.** Either nest the sub-milestones inline under their parent, or create a sibling file in the same folder and link to it from the parent. The parent plan must stay readable as a high-level overview — that overview is what a future session reads first to reorient, and flattening it into task-level detail destroys it.
+- **Re-read the plan file at the start of each milestone.** Do this even if you "remember" the plan; after a compaction your memory of it is a summary of a summary.
+- **Update the plan as work completes** — check off finished milestones, and record deviations inline with a `> **Build note:**` line explaining what you found and why the approach changed. Discoveries made during the build are the most valuable content in the file and the first thing lost if you do not write them down.
+- If the work turns out to be materially different from the plan, stop and re-plan with the user rather than improvising forward. A plan that no longer matches reality is worse than no plan, because it still looks authoritative.
+
+## Before you propose
+
+The approval you are asking for is only as good as the proposal. Before you describe a change, run
+the self-check in `quality-bar.md` — it governs *what* you propose; this file governs *when and how*
+you propose it.
+
+## Expert Review (non-trivial changes)
+
+- **Every non-trivial change requires structured expert review before merge.** Trivial changes (per the list above, plus: single file, ≤15 lines added, no schema/API/interface change, or PR labeled `trivial` / commit prefixed `trivial:`) skip this gate.
+- **An agent's self-report is not review evidence.** "Tests pass," "done," and "it works" from the agent that wrote the change verify nothing — authorship and evidence must be independent. Non-trivial work is re-reviewed independently (by a second reviewer or a review agent reading only the diff), and the gate below exists because that requirement is easy to claim and easy to skip.
+- **Four default personas must be considered:** Security, Performance, Maintainability, UX. Domain-specific personas may be added per project.
+- **Review evidence required (checked by `scripts/check-expert-review.sh` in CI):**
+  1. `plan.md` exists for the feature area (persisted under `docs/claude/<area>/...`).
+  2. `checklist.md` has ≥1 unchecked item at PR open (proves planning happened).
+  3. `adr.md` has a new section since the PR base branch (proves architectural decision recorded).
+  4. PR description contains sign-off from ≥2 named personas (e.g., `Security: ✓`, `Performance: LGTM`).
+- **Process:** Author drafts plan → opens PR → requests review from relevant personas → each persona comments with sign-off → CI gate passes → merge.
+- **Conflict escalation:** If personas disagree on a fundamental trade-off, the ADR records both positions and the decision; the operator (human) breaks ties.
+- **No rubber stamps:** A sign-off without reading the diff is a process violation. The adversary-review skill (§16) provides the grading rubric.
 ---
 
 # Long-Term Quality Bar
@@ -251,14 +351,21 @@ The path of least resistance is not neutral: it spends someone else's time later
 
 ## Present two options and let the user decide
 
-When the decision is genuinely a judgement call, do not decide silently. Present it like this:
+When the decision is genuinely a judgement call, do not decide silently — and remember the owner is
+non-technical: plain language, one short line per option. Present it like this:
 
 1. **Option A** — one line on what it is; what it costs now; what it costs later.
 2. **Option B** — same.
 3. **What differs that actually matters** — the one or two axes the choice turns on.
 4. **Your recommendation, and why.**
 
-Then stop and wait. Do not start implementing either option while the question is open. Two well-drawn options with honest tradeoffs is a better deliverable than a confident single answer that quietly closed off the alternative.
+Then stop and wait. Do not start implementing either option while the question is open.
+
+- **Present it as tappable choices wherever the surface supports them** (an option picker, an
+  interactive prompt, one line per option in the PR description) — not as a wall of prose the reader
+  must mine. A decision the owner cannot act on with one tap did not get presented; it got deferred.
+- Two well-drawn options with honest tradeoffs is a better deliverable than a confident single
+  answer that quietly closed off the alternative.
 
 ## Applies to
 
@@ -283,7 +390,21 @@ It is not a licence to gold-plate. It does not authorize building for imagined r
 # Git Workflow: Commits, PRs, Branching
 
 > **Applies when:** the project is version-controlled with git and changes land through pull requests.
-> **Delete this file (and its `@` import in CLAUDE.md) if:** the project is not in git, or has no PR/review process at all.
+> **Delete this file (and its `@` import in `CLAUDE.md`) if:** the project is not in git, or has no PR/review process at all.
+
+## Pre-flight — before any work or planning (always first)
+
+No agent plans or writes code before knowing the repo's current state. In order:
+
+- **`git fetch --prune` first.** Stale refs lie about what exists: a branch deleted on the remote still looks live locally, and someone else's new branch is invisible until fetched.
+- **Then survey the repo:** `git status --porcelain` (whose work is in the tree?), `git branch -a` and `git worktree list` (what branches and worktrees exist), and `gh pr list --state open` (what is already in flight).
+- **Then read, in order: the central plan doc (the roadmap under `docs/claude/`), the running worklog, then the code you are about to change.** Planning from memory of a repo you know is planning from a repo that has since moved.
+- **Carry forward in-flight work.** If the task is already queued in the plan doc, or an open branch/PR already covers it, continue that work — never open a parallel track for something already in progress. One open PR per repo at a time (see Merging), so new work waits behind what is open.
+
+## Plan first — presented before code
+
+- **Every non-trivial change starts with a plan written into the plan doc and presented to the owner BEFORE any code exists.** Goal in one sentence, phases, exit criteria, files it touches, what it deliberately does not cover. Full planning doctrine: `workflow.md`.
+- **The plan is written for a non-technical owner in plain language** — they must be able to say yes or no from what they read. Technical choices inside the plan are settled by evidence in the plan; only genuinely owner-level decisions are routed back to them, as two options plus a recommendation (`quality-bar.md`), never as a prose block.
 
 ## Commits
 
@@ -291,25 +412,36 @@ It is not a licence to gold-plate. It does not authorize building for imagined r
 - **Keep commits atomic — one logical change per commit.** A commit that does two things cannot be reverted, cherry-picked, or bisected without dragging the other one along.
 - **Do not mix a domain change and an infrastructure change in one commit.** A commit that alters a business rule *and* swaps an adapter, ORM call, or vendor client leaves the reviewer no way to tell which half changed the behaviour — and if it has to be reverted, both halves go. Split them along the layer boundary (see `clean-architecture.md`); the domain commit is the one that needs real scrutiny.
 - **Never push directly to `main`.** All work lands via a branch and a PR, so every change has a reviewable diff and a revert point.
+- **Code and its docs ride in the same commit.** A commit that changes code also updates the plan-doc row and the worklog in that same commit — never a follow-up "docs later" commit. A multi-commit PR can fail the docs gate on an intermediate commit (`check-docs.sh --since` walks every commit in the range), so keep each batch code+docs atomic, and let the squash-merge leave one combined commit on `main`.
 - **Remind the user to commit at the end of each feature or milestone** — they forget, and uncommitted work is the one kind of work that a crashed machine or a bad `git checkout` can delete outright.
+- **Commit identity is pinned per clone.** This repo commits under `dustin@joeybuilt.com` / "Dustin Olenslager"; a fresh clone with an empty global identity would land the first commit under the wrong author. Set it **repo-locally** (`git config user.email …`, never `--global`) before committing if it is not already correct.
 
-## Pre-commit gates (all three, every time)
+## Pre-commit gates (both, every time)
 
-- **Run the FULL typecheck before committing: `pnpm typecheck` (`tsc --noEmit`).** Unfiltered - do not grep the output, and do not spot-check only the files you changed. A type error in an untouched module that your change broke through a shared type is exactly the failure this catches, and partial checks have shipped broken CI more than once.
-- **Run the architecture-boundary check before committing: `pnpm depcruise`.** Inward-only dependencies are machine-checked (`error` rules block; the `web-lib-no-direct-db` `warn` baseline is the ratchet list in `clean-architecture.md`). A layering breach is the one defect review most reliably misses — the import looks innocuous.
-- **Run the full test suite before committing: `pnpm test` (`vitest run`).** All tests must pass. Do not skip, `.only`, or comment out a failing test to get a commit through - fix the code, or stop and report the failure.
+- **Run the FULL typecheck before committing: `pnpm typecheck` (`tsc --noEmit`, every workspace package).** Unfiltered — do not grep the output, and do not spot-check only the files you changed. A type error in an untouched package that your change broke through a shared type is exactly the failure this catches, and partial checks have shipped broken CI more than once.
+- **Run the full test suite before committing: `pnpm test` (`vitest run`).** All tests must pass. Do not skip, `.only`, or comment out a failing test to get a commit through — fix the code, or stop and report the failure.
+- **Run the architecture-boundary check before committing: `pnpm depcruise`.** Inward-only dependencies are machine-checked (`error` rules block; the `web-lib-no-direct-db` `warn` baseline is the ratchet list in `clean-architecture.md`). A layering breach is the one defect review most reliably misses — the import looks innocuous. *This local run is convenience, not enforcement — it is `--no-verify`-skippable and a non-Claude agent may never run it; the binding copy is the same check as a **required CI status** (`.github/workflows/verify.yml`).*
 - If a change alters query structure, response shapes, or call ordering, update the corresponding test fixtures and mocks in the same commit — see "Sequentially-consumed mocks go stale" in `testing.md` for the failure mode and how to spot it.
 - Both gates run before the commit, not before the push. A local commit you have not verified is a commit you will push at 6pm without rechecking.
 
+### The STANDARD gate — before any merge, unfiltered
+
+Merging is gated, and the gate is the same in every repo, for every agent, in every tool:
+
+- **Full tests + full typecheck + lint + the architecture-boundary check, run unfiltered, in the same session that merges.** Never a filtered run, never a cached "green from earlier" — rerun in the session that merges. Here that is `pnpm typecheck && pnpm lint && pnpm test && pnpm depcruise`.
+- **Non-trivial changes get an independent re-review before merge** — by a second reviewer, or by a review agent reading the diff without the author's framing. **An agent's self-report is a claim, not evidence:** "done" and "tests pass" are verified from the artifact or the gate output, never accepted on the author's word.
+- **CI green on the PR is required.** The PR must carry a green required status check (`.github/workflows/verify.yml`); a local pass does not substitute for it. `verify` **is** a required check on `main` here since 2026-09-26, with branch protection live (admins enforced, no force-push, no deletion) — so a red `verify` genuinely blocks a merge.
+
 ## Branching
 
-- **Always branch from an up-to-date `main`.** Fetch first: `git fetch origin && git switch -c <branch> origin/main`. Branching from a stale local copy imports every conflict that landed since you last pulled.
+- **One branch per batch, always cut fresh from an up-to-date `main`.** Name the branch for the batch (`fix/<slug>`, `feat/<slug>`, `chore/<slug>`), and a branch lives only while its work is live — not as a storage area for finished work. Fetch first: `git fetch origin && git switch -c <branch> origin/main`. Branching from a stale local copy imports every conflict that landed since you last pulled.
+- **Parallel writers get one worktree (or fresh clone) EACH — never two agents writing in one checkout.** Two mutating agents in one tree corrupt each other's index and stashes no matter how careful each one is; a private checkout is the only isolation git actually provides.
 - **Do not branch from another feature branch or an open PR's branch (no stacked PRs) — the default with exactly one exception, below.** PRs are squash-merged, which rewrites the base PR's commits into a single new SHA. The stacked branch still carries the *original* commits, so after the base merges, your branch will conflict with its own already-merged changes — a conflict that looks impossible and wastes an afternoon.
-- If new work depends on an unmerged PR, the rule is: wait for it to merge, then branch fresh from `main`. The one exception: you are truly blocked and waiting is not an option - then stack, flag it prominently in the PR description so the reviewer knows the base is moving, and expect to run the recovery below after the base squash-merges.
+- If new work depends on an unmerged PR, the rule is: wait for it to merge, then branch fresh from `main`. The one exception: you are truly blocked and waiting is not an option — then stack, flag it prominently in the PR description so the reviewer knows the base is moving, and expect to run the recovery below after the base squash-merges.
 
 ### Recovery: already stacked on a squash-merged branch
 
-Do not run a plain `git rebase main` - it replays the duplicated commits and recreates every conflict. Drop the old base's commits instead:
+Do not run a plain `git rebase main` — it replays the duplicated commits and recreates every conflict. Drop the old base's commits instead:
 
 ```
 git fetch origin
@@ -318,11 +450,37 @@ git rebase --onto origin/main <old-base-branch-tip>
 
 `<old-base-branch-tip>` is the last commit that belonged to the base branch (its SHA before the squash-merge, or `origin/<old-base>` if the ref still exists). Everything after that point replays cleanly onto the new base.
 
+### Before you ship, merge, or delete a branch: prove it carries unmerged work
+
+A branch showing commits "ahead" of `main` is *not* proof it holds unmerged work. A squash-merge collapses the branch's commits into one new SHA on `main` and leaves the original branch behind with its old commits, so `git log` and `git status` keep calling it "ahead" long after every line it changed has landed — the same rewrite behind the stacked-branch trap above. Trust the diff, not the ahead count.
+
+- **Run `git cherry -v main <branch>` before you open a PR, merge, or ship a branch.** A line prefixed `-` is a commit whose change is already present on `main` (an equivalent patch merged); a line prefixed `+` is genuinely unmerged. All `-` means the branch carries nothing new — do not merge it, and do not "resolve" the phantom conflicts a re-merge invents against already-merged code. `git diff main...<branch>` (three dots) is the same verdict from the other side: an empty diff means nothing to ship.
+- **Only a branch with `+` lines is work.** Everything else is cleanup, not a merge.
+- **Delete a verified-merged branch, but record its tip SHA first so the delete is reversible.** `git rev-parse <branch>` and note the branch name + SHA in the PR or the worklog before deleting — deleting a merged branch loses nothing but the ref, and the ref is the only way back if the check was wrong (`git branch <name> <sha>` restores it). Then delete both ends and prune: `git push origin --delete <branch>`, then `git fetch --prune` so every checkout drops its dead remote-tracking ref.
+- **`git branch -d` is a weaker check than `git cherry`, not a stronger one.** For a squash-merged branch `-d` *refuses* ("not fully merged") because git never sees the collapsed SHA as an ancestor. When `git cherry` has already proved the branch is fully merged but `-d` still refuses, re-read the cherry output once, then delete with `git branch -D` — the cherry check is the authority here, not `-d`.
+
 ## Keeping branches fresh
 
-- **Rebase open PR branches onto `main` every 1-2 days.** Small, frequent rebases produce one or two trivial conflicts; a week of drift produces a wall of them, and a wall of conflicts is where correct code gets resolved away by accident.
+- **Rebase open PR branches onto `main` every 1–2 days.** Small, frequent rebases produce one or two trivial conflicts; a week of drift produces a wall of them, and a wall of conflicts is where correct code gets resolved away by accident.
 - Rebase before requesting review, so the reviewer reads the diff that will actually merge.
 - After rebasing a pushed branch, force-push with `git push --force-with-lease` — never a bare `--force`, which will silently discard a collaborator's commits pushed since your last fetch.
+
+## Merging
+
+- **Squash-merge to `main` only — and the branch is deleted in the same operation (delete-branch-on-merge).** One compact commit per PR on main; the full commits, diff, review, and check run remain on the PR page. Never a merge commit, never a rebase-merge: per-commit history on the default branch is noise at review time, and rebase-merging recreates the stacked-branch conflict described above. Squash-only is repo-level policy; do not flip it per PR, and never work around it with a merge commit.
+- **One open PR per repo at a time; no stacked PRs.** Parallel reviewable units land serially, so each merges against a stable base and reviewable size. The only exception is when the owner explicitly grants it — and the grant is recorded in the plan doc, so a later session does not read the exception as the rule.
+- **Push each batch as the batch completes.** A PR that arrives once, complete, is one unreviewable dump; incremental pushes show the plan progress as it lands, and review can start on the first batch.
+
+## Repo hygiene & credentials
+
+- **Verify commit identity before the first commit in a fresh clone** — see "Commits" above for the identity this repo pins. Set it repo-locally, never `--global`.
+- **Never put a credential in the remote URL, and never commit a secret.** Keep secrets in env or a secret store; keep git auth in a credential helper (`git config credential.helper`, `~/.git-credentials`, or the OS keychain) so the remote stays `https://github.com/<owner>/<repo>.git` — never `https://<user>:<token>@github.com/...`. A token in the URL leaks through `git remote -v`, shell history, CI logs, and the reflog, and removing it does not un-expose it: if one was ever embedded, **rotate it.** `.env.example` is tracked here; `.env` and `.env.*` are not.
+- **The `.claude/settings.json` deny-list binds only Claude Code.** It does nothing to a Cursor,
+  Codex, Copilot, Windsurf, Cline, or aider agent. The tool-agnostic guardrail is **server-side**:
+  branch protection on `main` (blocks force-push and direct pushes no matter who typed
+  them) plus **required status checks** (`.github/workflows/verify.yml`). Both are already on in this
+  repo (since 2026-09-26) — that server-side pair, not the `MUST NOT` prose in `AGENTS.md`, is what
+  actually stops a non-Claude agent.
 
 ## Pull requests
 
@@ -335,7 +493,7 @@ git rebase --onto origin/main <old-base-branch-tip>
 # Documentation & Memory
 
 > **Applies when:** always — this defines where project knowledge lives and how it survives context compaction.
-> **Delete this file (and its `@` import in CLAUDE.md) if:** never. If the project keeps its knowledge base elsewhere, retarget the paths rather than dropping the module.
+> **Delete this file (and its `@` import in `CLAUDE.md`) if:** never. If the project keeps its knowledge base elsewhere, retarget the paths rather than dropping the module.
 
 ## Two tiers of memory
 
@@ -346,28 +504,122 @@ The distinction is not about secrecy, it is about durability: committed docs are
 
 ## Read order (start here, in this order)
 
-1. **`docs/claude/in-progress.md`** — the ordered queue of what is next, with pointers to plan docs. Always read this first; it tells you what the current work actually is, which is the one thing a fresh context window cannot infer from the code.
+1. **`docs/claude/in-progress.d/`** — the queue, ONE FILE PER TASK, each carrying that task's status and its exact next step. Always read this first; it tells you what the current work actually is, which is the one thing a fresh context window cannot infer from the code. `docs/claude/in-progress.md` is a GENERATED table view of the directory — read it if the repo renders one, but never edit it.
+   > **Nexalog is mid-migration on this.** The fragment set under `docs/claude/in-progress.d/` is the durable record, but `in-progress.md` is still tracked and hand-maintained — the Phalanx reconcile sweep has not run here and the loop still reads its own machine-local state. Treat them as two views of one queue and keep them consistent until the sweep lands; do **not** delete or untrack `in-progress.md`.
 2. **`docs/claude/architecture.md`** — the decisions and their reasoning, so you extend the design instead of re-litigating it.
 3. **`docs/claude/key-patterns.md`** — conventions, gotchas, and testing practice, so your code matches what is already there.
 4. **`docs/claude/infrastructure.md`** — deploy pipeline, hosting, data stores, secrets, background jobs. Read before touching anything that runs outside the dev machine.
 5. **`docs/claude/completed-features.md`** — what already exists, so you do not rebuild it.
 6. **The relevant area folder** (e.g. `docs/claude/<area>/…`) — active plans and research for the feature you are working on.
 
-Read the specific files that bear on the task, not all of them every time. But never start non-trivial work without at least `in-progress.md` and the area folder for the thing you are changing.
+Read the specific files that bear on the task, not all of them every time. But never start non-trivial work without at least `in-progress.d/` and the area folder for the thing you are changing.
 
-> **Nexalog state:** `docs/claude/` currently holds `roadmap.md` plus the `platform/` and `ui/` area folders (each with a `completed/` subfolder). `in-progress.md`, `worklog.md`, `architecture.md`, `key-patterns.md`, `infrastructure.md`, and `completed-features.md` are the designated targets of this contract but do not exist on disk yet — create the one you need when you first write to it, rather than skipping the record. ADRs are the exception: they already live in root-level `adr/`.
+**Decisions have a long form in this repo.** `docs/claude/architecture.md` is the index; the full record is a numbered ADR at `adr/NNNN-slug.md` — `0001-audit-methodology.md` … `0023-chat-surface-hosted-here-turn-hosted-there.md`. Read the ADR when the index row touches what you are changing; the *why* is there and is not reconstructible from the code.
+
+## The always-current plan & worklog
+
+Four artifacts, four altitudes. Each owns ONE fact-granularity; nothing restates another, so nothing
+drifts. This is the anti-redundancy contract — keep to it and the logs cannot contradict each other.
+
+| Altitude | File | Owns | Granularity |
+|---|---|---|---|
+| Strategic | `docs/claude/roadmap.md` | Initiatives, their band (Now/Next/Later), links down | one initiative |
+| Tactical | `docs/claude/in-progress.d/<slug>.md` (one file per task) | The active queue, blocked, parked, per-task Next step | one task/feature |
+| Continuous | `docs/claude/worklog.md` **or** the repo's `CHANGELOG`/`HISTORY` `[Unreleased]` | What actually landed | one change |
+| Durable | `docs/claude/completed-features.md` | What now exists + its archived plan path | one shipped feature |
+
+A fifth surface, `CHANGELOG.md`/`HISTORY.md` release notes, is **user-facing and derived** — curated
+from the worklog at release time, not maintained per-change in parallel. If the repo uses its
+`[Unreleased]` section AS the running worklog, there is no separate `worklog.md` (one running log, never two).
+
+**This repo's worklog target is `docs/claude/worklog.md`.** There is no `CHANGELOG.md` and no
+`HISTORY.md` here, and do not start one — a second running log splits the record, and `check-docs.sh`
+auto-detects the target, so adding one would silently move the gate.
+
+### The same-change update contract (every agent, every provider)
+
+In the SAME commit that lands work — Claude, Codex, Cursor, or any other tool:
+
+1. **Append one worklog line** (to `worklog.md`, or the `[Unreleased]` section) — what changed, where.
+2. **Write your task's own fragment** — `docs/claude/in-progress.d/<slug>.md` — with its status and its
+   Next-step handoff, or **delete the fragment** on ship — in the SAME PR that ships the code, never
+   later (a fragment that outlives its merge is planned against as if still open; leftovers are
+   retired from PR state with `phalanx-docs-reconcile.sh`). Never edit a shared table: the queue is one file
+   per task precisely so two open PRs cannot collide on it, the same reason the worklog is one file per
+   change. `docs/claude/in-progress.md` is a generated view — do not edit it, and do not commit it.
+   *(While this repo is mid-migration, item 2's "generated view" half does not hold yet — see Read order
+   item 1. Update both, and do not add a new hand-maintained row that contradicts its fragment.)*
+3. **On ship**, additionally: add the `completed-features.md` entry, MOVE the `roadmap.md` initiative
+   (to Shipped if this was its last plan), and archive the plan folder.
+4. **On a new or reprioritised initiative**: add or move its `roadmap.md` row.
+
+This contract is plain-markdown, enforced by review and `/audit-claude-setup` — never a Claude-only
+permission gate, so it binds a non-Claude agent exactly as much as a Claude one. It is mirrored into
+`AGENTS.md` so every tool reads it. **Shipped-but-unlogged counts as not done** (see below).
+
+### The queue is the ONLY backlog — autonomous drivers included
+
+A project has exactly one answer to "what is next", and it is this directory. An agent that keeps its
+own private list — an untracked `TASKS.md`, a session database, a scratch file — has created a second
+backlog that nobody else can see, and within a day the two disagree about what is done.
+
+So the fragment is written to be **driven, not just read**. Frontmatter carries what a driver needs;
+the body carries what a human needs:
+
+```markdown
+---
+id: <slug>
+status: open | in-progress | blocked | done
+order: <int>            # optional; ties break by filename
+req: <request-id>       # optional; set by a request-scoped seed
+risk: operator-confirm  # optional; data-loss or irreversible-prod work, never auto-executed
+---
+
+<what the task is>
+
+**Next step:** <the exact next action — the file to open, the command to run, the blocker>
+```
+
+`status` is the queue state (a `- [ ]` checkbox by another name). `risk:` is a halt flag: a driver
+stops and asks rather than executing it. **Next step** is the handoff a cold session resumes from, and
+it is the one line always worth writing — the person who needs it cannot reconstruct where you stopped
+from the code alone.
+
+This is the same contract Phalanx's autonomous loop adopted in its ADR-0004, so a task seeded by the
+loop and a task written by hand are the same file. A committed queue is also the only kind a reviewer,
+a diff, or a non-Claude agent can see at all.
+
+**`TASKS.md` / `PROGRESS.md` / `HANDOFF.md` at the repo root are not this queue.** They are
+machine-local Phalanx loop state — untracked and gitignored. Never plan against them, never `git add`
+one back, and never delete one to "clean up": a running loop reads it.
+
+### The landing gate — mechanical enforcement
+
+The contract's deterministic core is enforced by `scripts/check-docs.sh`, which fails any commit that
+changes a non-markdown file (source, config, schema, scripts, CI) but not the worklog target in the
+same commit. It runs in required CI (`scripts/templates/ci-verify.yml`) and the pre-commit hook, so it
+binds every agent in every tool — the provider-neutral floor. The gate enforces **presence**, not
+**correctness**: a vague or wrong worklog line passes. Correctness is a review problem, not an
+automation problem — the honest limit of any git-native kit. The worklog target is auto-detected
+(`CHANGELOG.md`/`HISTORY.md` `[Unreleased]`, else `docs/claude/worklog.md`), overridable via
+`DOCS_WORKLOG`.
+
+**Nexalog's copy carries one addition the kit template does not:** a sweep of every tracked file for
+unresolved merge-conflict markers. It belongs here because this gate runs in required CI — a marker
+committed into a shipped file is a worse outcome than a red check, and nothing else in the pipeline
+looks for one. Keep it if you ever re-sync the script from the kit.
 
 ## When to write
 
-- **When work lands** — append a dated entry to **`docs/claude/worklog.md`** in the same change as the code. That file is this repo's worklog target: there is no `CHANGELOG.md` and no `HISTORY.md`. The queue is `docs/claude/in-progress.md`, backed by one fragment per task in `docs/claude/in-progress.d/<slug>.md`; plans live in `docs/claude/<area>/<slug>/plan.md`. Shipped-but-unlogged counts as not done.
-- **When a plan is made** — persist it to a file under the area folder, from `docs/claude/_templates/plan.md`, and link it from `in-progress.md`. Plans that live only in chat are erased by compaction.
+- **When a plan is made** — persist it to a file under the area folder, from `docs/claude/_templates/plan.md`, and link it from your task's `in-progress.d/` fragment. Plans that live only in chat are erased by compaction.
 - **During the build, at the moment of discovery** — when reality contradicts the plan, record it inline with a `> **Build note:**` line. Written later, it is written wrong; written never, the next person rediscovers it the expensive way.
-- **When a decision is made that a future reader would otherwise question** — add an ADR at `adr/NNNN-slug.md`. ADRs live in the **root-level `adr/` directory** (not under `docs/`), numbered sequentially (`0001-audit-methodology.md` … `0017-retire-plexo-exclusive-intelligence.md`). The trigger is "someone will wonder why we did this," not "this was hard."
-- **Always ADR-worthy: anything that moves a layer boundary or introduces a port.** A new port and the adapter behind it, a rule relocated between layers, a Detail swapped out (database, framework, vendor), or a deliberate decision to let one layer know about another. The reasoning is invisible in the diff six months later, so without the ADR the next person re-litigates a decision that was already made carefully. See `clean-architecture.md`.
-- **When you get burned by a non-obvious behavior** — record it as a gotcha, with the symptom, not just the fix. The next person will arrive with the symptom.
-- **When infrastructure changes** — update the infrastructure docs in the same PR as the change. Infra docs that lag the infra are worse than none, because they are trusted.
+- **When you pause or hand off** — before you stop, write the *exact next action* where the next session looks first: the **Next step** line of your task's `in-progress.d/` fragment, or the `Next step` line of the plan doc for a multi-session feature. Not a topic ("continue the auth work") — the file to open, the function to change, the command to run, the blocker. A cold session resumes from this and nothing else, so it is the one note always worth writing: the person who needs it is not you, and cannot reconstruct where you stopped from the code alone.
+- **When a decision is made that a future reader would otherwise question** — add an ADR entry at `adr/NNNN-slug.md` (the next free number in the existing chain), and a one-line row pointing at it in `docs/claude/architecture.md`. The trigger is "someone will wonder why we did this," not "this was hard."
+- **Always ADR-worthy: anything that moves a layer boundary or introduces a port.** A new port and the adapter behind it, a rule relocated between layers, a Detail swapped out (database, framework, vendor), or a deliberate decision to let one layer know about another. `lib/intelligence/` is this repo's worked example — `adr/0014-intelligence-port-adapters.md`, `adr/0015-adapter-mesh-protocol.md`, `adr/0017-retire-plexo-exclusive-intelligence.md`. The reasoning is invisible in the diff six months later, so without the entry the next person re-litigates a decision that was already made carefully. See `clean-architecture.md`.
+- **When you get burned by a non-obvious behavior** — add it to `key-patterns.md` as a gotcha, with the symptom, not just the fix. The next person will arrive with the symptom.
+- **When infrastructure changes** — update `infrastructure.md` in the same PR as the change. Infra docs that lag the infra are worse than none, because they are trusted.
 
-Update the doc in the same PR as the code it describes. A "docs pass later" never happens.
+Update the doc in the same PR as the code it describes. A "docs pass later" never happens. **Shipped-but-unlogged counts as not done:** if it is live and the log does not show it, the task is unfinished — finish it by writing the record. The first time the log lags reality, every reader stops trusting it and re-reads the code instead, which is the exact cost this whole file exists to avoid.
 
 ## When to archive
 
@@ -376,7 +628,7 @@ After a feature is tested and signed off:
 1. Move its entire folder — plan, research, references, everything — into that area's `completed/` subfolder.
 2. **Rename the files to describe what shipped**, not generic `plan.md`. A folder of six files named `plan.md` is unsearchable.
 3. Add an entry to `completed-features.md`: what shipped, when, and the archived path.
-4. Remove the item from `in-progress.md`.
+4. Delete the task's `in-progress.d/` fragment (and its row in `in-progress.md` while the two are still hand-kept in step — see Read order item 1).
 5. Update any closed issue or milestone descriptions that pointed at the old paths.
 
 Archive, do not delete. The reasoning behind a shipped feature is the context for the next change to it.
@@ -384,6 +636,10 @@ Archive, do not delete. The reasoning behind a shipped feature is the context fo
 ## Hygiene
 
 - One fact, one home. If something belongs in `architecture.md`, do not also paste it into a plan file — copies drift, and a reader cannot tell which copy is current.
+- **`completed-features.md` is the feature narrative, not a changelog.** It records what a user or
+  caller can now do, plus the archived plan path. If the repo keeps a `CHANGELOG.md`/`HISTORY.md`,
+  that stays the release/commit line; `completed-features.md` may reference a release but never
+  restates the commit log. One fact, one home — across both files, and across the four altitudes above.
 - Correct stale docs on sight. Finding an out-of-date statement and leaving it there makes you the reason the next person trusts it.
 - Keep entries short and dated. These files are read under context pressure; a wall of prose gets skimmed and misread.
 
@@ -435,6 +691,7 @@ Those wrappers are the adapters that sit between your code and the Details it de
 | Import alias / module path for internal imports | `@/*` maps to `./*` (the repo root — the layout is root-level, with no source-subdirectory wrapper). |
 | Shared enums, constants, and cross-boundary types live in | No single shared types module exists. Persistence enums live in `lib/db/schema.ts`; feature types live in their `lib/<feature>/` slice; port contracts live with the port (e.g. `lib/intelligence/port.ts`). |
 | File and symbol naming | Kebab-case files, PascalCase React components, camelCase functions, `.test.ts` vitest suffixes under `lib/__tests__/`, `.spec.ts` Playwright suffixes under `e2e/`. |
+| The API/HTTP wrapper all feature code must call | None exists yet — a documented gap. Until one lands, the adapter or feature module owns the call (see above). |
 | The data-access layer all persistence must go through | `lib/db/index.ts` (Drizzle client) with `lib/db/schema.ts`; all tables in the `nexalog` PG schema, never `public`. |
 | Formatter / linter that decides mechanical style | ESLint only (`eslint.config.mjs`) — `pnpm lint`. There is no Prettier config, no other formatter, and no separate format command. |
 | License header | Every new file starts with `// SPDX-License-Identifier: MIT`. |
@@ -474,24 +731,26 @@ Before deleting, search the whole repo for the symbol (including string referenc
 ## Baseline
 
 - Write unit tests for all business logic: validation, data transformations, calculations, state machines, permission checks, formatting. Logic without a test is a behaviour nobody can change safely later.
-- **Run `pnpm test` (`vitest run`) after every change**, not just at the end of a task. A failure found one edit later is a two-minute fix; found ten edits later it is a bisect. Unit tests live under `lib/__tests__/*.test.ts`; Playwright specs live under `e2e/*.spec.ts`.
+- **Run `pnpm test` (`vitest run`, every workspace package) after every change**, not just at the end of a task. A failure found one edit later is a two-minute fix; found ten edits later it is a bisect. Unit tests live under `lib/__tests__/*.test.ts` (plus per-package `test/` dirs in `packages/core` and `packages/adapters`); Playwright specs live under `e2e/*.spec.ts`.
 - If tests fail, fix the code until they pass before moving on. Report the failure — never continue building on a red suite.
 - **Never skip, `.only`, comment out, or delete a failing test to get green.** A skipped test is an untested behaviour plus a false signal, which is worse than no test. If a test is genuinely obsolete because the behaviour was removed, delete it in the same change that removes the behaviour, and say so.
 - Do not filter or spot-check the run. Run the full suite, unfiltered, before committing.
 
-## Endpoint test coverage target
+## Endpoint test coverage — the target state
 
-Every endpoint should have a test. This repository has no endpoint-coverage checker and no allowlist — CI (`.github/workflows/verify.yml`) runs the unit suite but cannot detect a missing route test — so the machinery below is a target state and review must enforce the pairing by hand until it is wired.
+Every endpoint must have a test, and CI must be the thing that says so. Reviewers forget; a job does not.
 
-> **If the enforcement machinery below does not exist in this project yet** (no check script, no allowlist), it is the target state, not a description of current CI — the adapt setup offers to scaffold it (~30 lines walking the route manifest). Until it exists, follow rules 1–3 by discipline and say so in PRs; do not assert CI behavior that is not wired.
+> **The enforcement machinery below does not exist in this project yet** (no check script, no allowlist), so it is the target state, not a description of current CI. `.github/workflows/verify.yml` runs the unit suite but cannot detect a missing route test. Until the checker is scaffolded, follow rules 1–3 by discipline and say so in PRs; do not assert CI behaviour that is not wired.
 
-**1. Mirror the source tree in the test tree.** For an endpoint at `app/api/<area>/route.ts`, its test lives under `lib/__tests__/` as a `*.test.ts` vitest file (the existing home of unit tests, e.g. `intelligence-port.test.ts`, `outbox.test.ts`). Route tests are not colocated beside `route.ts` files in this repo.
+**1. Mirror the source tree in the test tree.** For an endpoint at `app/api/<area>/route.ts`, its test lives under `lib/__tests__/` as a `*.test.ts` vitest file — the existing home of route tests here (e.g. `apps/web/app/api/captures/__tests__/route.test.ts`, `lib/__tests__/outbox.test.ts`). Route tests are not colocated beside `route.ts` files in this repo; check the nearest existing example before inventing a new location.
 
-**2. Detect endpoints exactly, not by heuristic.** Next.js App Router route files under `app/api/` are the endpoint source. Keep the route list and test mapping explicit when reviewing coverage.
+**2. Detect endpoints exactly, not by heuristic.** Next.js App Router route files under `app/api/` are the endpoint source — there is no router registration table to derive the list from, so derive it from the filesystem and keep the route→test mapping explicit when reviewing coverage.
 
-**3. New endpoint and its test ship in the SAME change.** A separate follow-up PR for tests is never written. Review names the exact missing route test path.
+**3. New endpoint and its test ship in the SAME change.** A separate follow-up PR for tests is never written. Review fails the change if an endpoint file has no matching test, and names the exact missing route test path so the fix is obvious.
 
-**4. Legacy gaps are known debt.** Do not hide a missing route test with an exception. When touching an uncovered route, add its test in the same change.
+**4. Legacy gaps are known debt, tracked shrink-only.** Do not hide a missing route test behind an exception. When touching an uncovered route, add its test in the same change, and never grow a gap list to unblock yourself — if you believe an exception is warranted, stop and ask the user.
+
+**5. Run the check locally before pushing** once it exists. Discovering this in CI wastes a full pipeline cycle.
 
 ## What an endpoint test asserts
 
@@ -505,7 +764,7 @@ Every endpoint should have a test. This repository has no endpoint-coverage chec
 - **Mock the authentication/authorization middleware to inject a fixed test user.** Endpoint tests exist to test the endpoint; re-testing auth in every endpoint file makes each test slower, flakier, and coupled to the auth implementation. Test auth once, in its own suite.
 - **Inject a fake through the port rather than patching a module.** The data layer stays out of the test — no live database, service, or network — because the use case receives its repository/gateway as a dependency and the test hands it an in-memory implementation. Real dependencies make tests order-dependent, environment-dependent, and slow, and they fail for reasons that have nothing to do with the change under review.
 - Injection beats patching for a concrete reason: a patch keyed on a module path breaks the moment someone moves the file, and it silently stops patching anything if the path is wrong, while a constructor or parameter argument is checked by the compiler and cannot miss.
-- Mock at the boundary the code actually calls (the client module, the repository), not deeper. Mocking internals couples the test to implementation details and it breaks on every refactor. **If there is no port to inject at, that is a finding — record it.** When the code is yours to change in this same effort, add the port. When you are testing existing conventionally-structured code, patching the module at the boundary it calls is an acceptable interim — note the missing port rather than blocking the test on an architecture refactor nobody approved.
+- Mock at the boundary the code actually calls (the client module, the repository), not deeper. Mocking internals couples the test to implementation details and it breaks on every refactor. **If there is no port to inject at, that is a finding — record it.** When the code is yours to change in this same effort, add the port (the pattern: `lib/intelligence/port.ts`, injected at the call site). When you are testing existing conventionally-structured code, patching the module at the boundary it calls is an acceptable interim — note the missing port rather than blocking the test on an architecture refactor nobody approved.
 
 ### Sequentially-consumed mocks go stale — watch for this
 
@@ -518,7 +777,7 @@ Many mocking styles queue results and hand them out **in call order**. So when y
 ## Before you commit
 
 - Full test run, unfiltered: `pnpm test`.
-- Verify assertions match any new response shape — dropped fields, renamed fields, changed types — rather than assuming an untouched test still tests what it claims.
+- Verify assertions match any new response shape — dropped fields, renamed fields, changed types — rather than assuming an untouched test still tests what it claims. See "Sequentially-consumed mocks go stale" above for the silent version of this failure.
 
 ---
 
@@ -566,7 +825,7 @@ This counter-rule matters as much as the rules above. Defensive code between you
 ## Log with enough context to debug
 
 - Every logged error includes: what operation was running (route/job/handler name), the identifying inputs (record ids, not full payloads), and the underlying error message and stack. A log line that says only `Error: request failed` costs an hour of bisecting.
-- Log through `lib/logger.ts` (`logEvent` — structured JSON lines), not bare `console.log` calls. The observability backend is Plexo when present — there is no Sentry or PostHog, and no second error-reporting vendor may be added.
+- **Log through `lib/logger.ts` (`logEvent` — structured JSON lines), not bare `console.log`.** The observability backend is Plexo when present; there is no Sentry, no PostHog, and no second error-reporting vendor may be added.
 - Never log secrets, tokens, passwords, full auth headers, or personal data. Log the id, not the record.
 - Log the error where you have the context, once. The same failure logged at four levels of the stack makes the real one harder to find.
 
@@ -574,7 +833,7 @@ This counter-rule matters as much as the rules above. Defensive code between you
 
 **Every user-facing operation that fails must surface the failure to whoever initiated it, and log it.** In a UI, that means a visible error state; in a headless service, the "user" is the caller, and the failure maps to the typed error response — never a swallowed exception, never success-with-nothing-happened.
 
-- In the UI this covers API calls, form submissions, auth flows, uploads, background refreshes, optimistic updates, and streamed responses. Visible means the user can tell the operation failed and what to do next: an inline message, an error state on the component, or a toast - not a spinner that never resolves and not a screen that silently keeps stale data.
+- In the UI this covers API calls, form submissions, auth flows, uploads, background refreshes, optimistic updates, and streamed responses. Visible means the user can tell the operation failed and what to do next: an inline message, an error state on the component, or a toast — not a spinner that never resolves and not a screen that silently keeps stale data.
 - A rejected promise with no catch, a catch that only logs, and a loading flag that is never cleared on failure are all the same bug: the user is lied to about the state of their data.
 - Optimistic updates must roll back on failure, and say they rolled back. Leaving the optimistic value on screen after the write failed means the user believes something was saved that was not.
 - If a background operation fails and its initiator cannot act on it, it still gets logged with full context — but say plainly in your change description that it is intentionally silent, so the choice is reviewed rather than assumed.
@@ -596,54 +855,42 @@ Everything in this file is outer-layer work. The ORM, the driver, and the schema
 ## Schema changes
 
 - Make every schema change through a migration. Never edit the database directly — through a GUI, a console, or an ad-hoc `ALTER`. A direct edit exists only on that one machine; the next environment to deploy will not have it, and the schema file will disagree with reality.
-- Treat the schema definition file (`lib/db/schema.ts`) as the source of truth. Change it first, then generate the migration from it with `pnpm db:generate` (`drizzle-kit generate`). If the schema file and the database disagree, the schema file is right and the database needs a migration.
-- **All tables live in the `nexalog` PG schema, never `public`.** `drizzle.config.ts` declares `dialect: "postgresql"`, `schema: "./lib/db/schema.ts"`, `out: "./drizzle"`, `schemaFilter: ["nexalog"]`, and reads its URL from `process.env.DATABASE_URL`. The `auth` schema belongs to Better Auth (shared cross-app SSO) — do not add app tables to it.
-- This repository runs a **mixed, hand-numbered migration chain**: `drizzle/*.sql` (hand-numbered `0001_phase11_capture_sources.sql` … `0008_backfill_bookmarked_at.sql` and beyond — the numbering has collided before, e.g. two `0008_*.sql` files) plus `lib/db/migrations/0001_capture_lifecycle.sql`. There is **no `drizzle/meta/` directory**, so drizzle-kit keeps no journal or snapshot of what has applied. Treat the chain honestly as hand-numbered: check the existing numbers in both directories before adding a migration, and never reuse a number.
-- Every new table, column, index, constraint, or enum value requires a migration file in the same change. A schema edit with no migration file alongside it is an incomplete change.
+- Treat the schema definition file (`apps/web/lib/db/schema.ts`) as the single source of truth. Change it first, then generate the migration from it. If the schema file and the database disagree, the schema file is right and the database needs a migration.
+- **All tables live in the `nexalog` PG schema, never `public`.** `apps/web/drizzle.config.ts` declares `dialect: "postgresql"`, `schema: "./lib/db/schema.ts"`, `out: "./drizzle"`, and `schemaFilter: ["nexalog"]`, and reads its URL from `process.env.DATABASE_URL`. The `auth` schema belongs to Better Auth (shared cross-app SSO) — do not add app tables to it.
+- Every new table, column, index, constraint, or enum value requires a generated migration in the same change. A schema edit with no migration file alongside it is an incomplete change.
 
 ## This repository runs against a SHARED database — read this before any schema change
 
-The rules above assume a repository that owns its database and its migration history. **This one does
-not.** The `nexalog` schema sits in a Postgres instance shared with sibling apps, and the migration
-journal in that database belongs to a sibling: `pushd.drizzle.__drizzle_migrations` carries Pushd's
-own history. Verified 2026-09-27 — the hashes in that journal match Pushd's migration chain and
-**none** match this repository's.
+The rules above assume a repository that owns its database and its migration history. **This one does not.** The `nexalog` schema sits in a Postgres instance shared with sibling apps, and the migration journal in that database belongs to a sibling: `pushd.drizzle.__drizzle_migrations` carries Pushd's own history (verified 2026-09-27 — the hashes in that journal match Pushd's chain and **none** match this repository's).
 
-Four rules above therefore have a documented, deliberate exception here:
+Three rules above therefore have a documented, deliberate exception here:
 
-- **Never run `pnpm db:migrate` or `pnpm db:generate` against this database from this tree.** An
-  applier run from here writes this repository's bookkeeping into a journal another app owns, and a
-  generate run diffs `schema.ts` against a live database whose other schemas are not ours to change.
-  `db:push` remains banned outright for the reasons below.
-- **Apply schema changes by hand, scoped to the `nexalog` schema only** — reviewed, idempotent SQL
-  executed through a parameterized `psql` session against `nexalog.*`. This is the single exception to
-  "never hand-apply migration SQL". Scope every statement to `nexalog`; never touch `public`, `auth`,
-  or another product's schema, and never alter a migration journal you do not own.
-- **Still land the migration file.** A hand-applied change lands its hand-numbered, idempotent
-  migration file in the same change, so the chain remains an honest record of what was applied. The
-  file is the *record*; it is not the applier.
-- **A human approves every change to the shared database before it is applied.** A standing guardrail,
-  not waived for small changes.
+- **Never run the applier or the generator against this database from this tree.** `pnpm db:migrate` (`drizzle-kit migrate`, run in `apps/web`) writes this repository's bookkeeping into a journal another app owns, and `pnpm db:generate` diffs `schema.ts` against a live database whose other schemas are not ours to change. Both are banned here; `db:push` is banned outright everywhere (see below).
+- **Apply schema changes by hand, scoped to the `nexalog` schema only** — reviewed, idempotent SQL executed through a parameterized session against `nexalog.*`. This is the single exception to "never hand-apply migration SQL". Scope every statement to `nexalog`; never touch `public`, `auth`, or another product's schema, and never alter a migration journal you do not own.
+- **Still land the migration file.** A hand-applied change lands its hand-numbered, idempotent migration file in the same change, so the chain remains an honest record of what was applied. The file is the *record*; it is not the applier.
 
-Verification is unchanged and non-negotiable: query the system catalog or select the new column and
-state what you saw. "The command printed OK" is not verification.
+**A human approves every change to the shared database before it is applied.** A standing guardrail, not waived for small changes. Verification is unchanged: query the system catalog or select the new column and state what you saw — "the command printed OK" is not verification.
 
-## Migration generation
+**The chain is hand-numbered and has no journal.** `apps/web/drizzle/*.sql` (hand-numbered `0001_phase11_capture_sources.sql` … `0028_project_items_kind_project.sql`) plus `apps/web/lib/db/migrations/0001_capture_lifecycle.sql`. There is **no `drizzle/meta/` directory**, so drizzle-kit keeps no snapshot of what applied; the numbering has collided before (two `0008_*.sql` files). Check the existing numbers in both directories before adding a migration, and never reuse a number.
 
-- **Generate migrations with `pnpm db:generate` (`drizzle-kit generate`); never hand-write a migration file from scratch.** Because `drizzle/meta/` does not exist, drizzle-kit has no journal of the legacy hand-numbered chain: a generate run can re-emit SQL for changes that already applied, or start a fresh journal that disagrees with the existing files. Always diff the generated SQL against the existing `drizzle/*.sql` chain before keeping it, and review all generated SQL before it reaches production.
-- Never hand-apply migration SQL with an ad-hoc `psql` session; migrations land through the toolchain's applier only — **except in this repository, where the shared-database section above makes a reviewed, `nexalog`-scoped hand-apply the only sanctioned path.** "Reviewed and scoped" is the whole of the exception; an unreviewed ad-hoc session is still forbidden.
+## NEVER hand-write migration files
+
+- **Always create migrations through the toolchain's generation command, `pnpm db:generate` (`drizzle-kit generate`, run in `apps/web`) — where it is permitted.** Never author a migration file from scratch. The failure differs by toolchain but the rule does not: in toolchains that keep journal/snapshot bookkeeping alongside each migration, a from-scratch file has neither, so the migrator cannot see it — it passes review, passes local testing where you ran the SQL yourself, and then silently never runs in production. In chain-based toolchains (revision graphs with down-revision pointers), a from-scratch file risks a broken or forked chain that blocks every later migration. Generate first; the bookkeeping comes with it.
+  **Nexalog's exception:** generation is banned against the shared database (see the shared-database section), and there is no `drizzle/meta/` journal for the legacy hand-numbered chain — so here the reviewed, `nexalog`-scoped hand-written file **is** the sanctioned path, landed in the same change as the SQL that was applied by hand. "Reviewed and scoped" is the whole of the exception; an unreviewed ad-hoc file is still forbidden. If generation is ever used against a safe target, diff its output against the existing `drizzle/*.sql` chain before keeping it.
+- If a generated migration's SQL is wrong or needs tuning, edit the generated file. That keeps the bookkeeping intact. Do not delete it and write a replacement from scratch.
 - Make migrations idempotent — `IF NOT EXISTS` on creates, `IF EXISTS` on drops. A migration may be re-run against a partially-migrated database during a retry or a rollback-and-replay; a non-idempotent one fails the second time and blocks the deploy. If the toolchain has an auto-patch step for this, run it after any manual edit to a migration.
 - Migrations are forward-only. Never edit or delete a migration that has been merged or applied anywhere but your own machine — the migrator records what it applied, and rewriting history makes its record a lie. Fix a bad migration with a new migration.
 
 ## Apply, then verify
 
-- After generating, apply with `pnpm db:migrate` (`drizzle-kit migrate`) — the non-interactive, forward-only applier. `pnpm db:push` (`drizzle-kit push`) is the banned interactive sync (see below), not an applier. Because the legacy hand-numbered chain has no drizzle journal, `db:migrate` may not know those files applied — the verification step below is what closes that gap. **In this repository the applier is never run at all** (see the shared-database section): the reviewed SQL is applied by hand against `nexalog.*`, and the verification step below is what carries the whole burden of proof.
+- After generating, apply with `pnpm db:migrate` (`drizzle-kit migrate`, run in `apps/web`). This command must be the toolchain's **non-interactive, forward-only applier** (deploy-style, never a dev-mode sync that can prompt to reset) — it was chosen at adapt time precisely because it never drops data, which is what makes it safe to run without asking. If the command in this file can prompt, reset, or drop, the fill is wrong: stop and fix it rather than running it.
+  **Nexalog's exception: the applier is never run at all from this tree** — the reviewed SQL is applied by hand against `nexalog.*` (see the shared-database section), and the verification step below carries the whole burden of proof.
 - **Verify the migration actually landed by querying the database directly** — inspect the system catalog (e.g. `information_schema.columns`) or select the new column. Do not trust the CLI's success output alone; a migrator can report success for a file it skipped, and the failure then surfaces as a production error instead of a local one.
 - State the verification in your report: which object you queried and what you saw. "The command printed OK" is not verification.
 
 ## NEVER use the interactive push/sync command
 
-- **Never run the ORM's interactive schema-push/sync command** — here, `pnpm db:push` (`drizzle-kit push`), the one that diffs the schema against a live database and applies it in place. It can DROP tables and columns to make the database match, it prompts mid-run in ways that are easy to answer wrong, and it leaves no migration file — so the change never reaches any other environment. Use generate + apply instead, always.
+- **Never run the ORM's interactive schema-push/sync command — `pnpm db:push` (`drizzle-kit push`).** It diffs the schema against a live database and applies it in place: it can DROP tables and columns to make the database match, it prompts mid-run in ways that are easy to answer wrong, and it leaves no migration file — so the change never reaches any other environment. Use generate + apply instead, always. **This is the sharpest edge in this repo**: the `nexalog` schema sits in the *shared* Postgres beside other apps' schemas, so a destructive sync here is not contained to this project. `.claude/settings.json` denies it for Claude Code; that binds Claude only, so it is a hard rule for every other harness.
 - The same ban covers any "reset", "force", or "accept data loss" flag on the migration tooling. If you believe one is genuinely needed, stop and ask the user first.
 
 ## Writing data
@@ -655,7 +902,7 @@ state what you saw. "The command printed OK" is not verification.
 
 ## CI enforcement
 
-CI exists (`.github/workflows/verify.yml` — typecheck / lint / test / build plus the docs and mirror gates), but the migration checks below are not wired into it yet, so they remain the target state — review must enforce them by hand until they are added. When they are, CI should fail the build, not just warn, on:
+CI exists (`.github/workflows/verify.yml` — typecheck / lint / test / build plus the docs, plan-home and mirror gates), but the migration checks below are not wired into it yet, so they remain the target state — review must enforce them by hand until they are added. When they are, CI should fail the build, not just warn, on:
 
 - a migration file with no matching journal/manifest entry or with a broken revision chain, per what the toolchain keeps (catches hand-written migrations),
 - a migration missing its idempotency guards,
@@ -767,7 +1014,7 @@ Use one only when all three hold: the payload is opaque or third-party-shaped, y
 
 # Front-End Engineering
 
-> **Applies when:** the project builds a client-side application with Next.js 16.2, React 19.2 components, views, routes, and client state.
+> **Applies when:** the project builds a client-side application (Next.js 16 App Router with React 19 components, views, routes, and client state).
 > **Delete this file (and its `@` import in `CLAUDE.md`) if:** the project has no user interface — a library, CLI, service, or job runner. Pair it with `design-system.md`, which covers how the UI should *look*; this file covers how it should be *built*.
 
 ## The UI is a Detail
@@ -778,9 +1025,9 @@ Use one only when all three hold: the payload is opaque or third-party-shaped, y
 
 ## File organization
 
-- `components/ui/` - generic, product-unaware primitives (shadcn/ui, configured via `components.json`). They take props, emit events, and know nothing about the domain. A primitive that imports a domain type is no longer a primitive.
-- `components/` outside `ui/` - components that know the product's nouns. Compose them from primitives; see `design-system.md` for the "assemble before you invent" rule.
-- `app/` - route and page entrypoints, including the `(app)` (authenticated) and `(auth)` route groups and the `app/api/<area>/route.ts` handlers. Pages wire data to components and own the route's async states; they should contain little markup of their own.
+- `components/ui/` — generic, product-unaware primitives (shadcn/ui, configured via `components.json`). They take props, emit events, and know nothing about the domain. A primitive that imports a domain type is no longer a primitive.
+- `components/` outside `ui/` — components that know the product's nouns. Compose them from primitives; see `design-system.md` for the "assemble before you invent" rule.
+- `app/` — route and page entrypoints, including the `(app)` (authenticated) and `(auth)` route groups and the `app/api/<area>/route.ts` handlers. Pages wire data to components and own the route's async states; they should contain little markup of their own.
 - One component per file, named the same as the file, exported by name. A file that exports three components hides two of them from search and from reuse.
 - Extract a subcomponent when a piece is reused, or when a file grows past the point where its render is readable in one screen — not merely because a file is long. Splitting a linear render into six files makes it harder, not easier, to follow.
 
@@ -789,12 +1036,12 @@ Use one only when all three hold: the payload is opaque or third-party-shaped, y
 - **Colocate state with the component that uses it.** Start with local state; it is the only kind that cannot desynchronize.
 - **Lift state only when two siblings must agree on it**, and lift exactly to their nearest common parent — no higher. State parked at the root re-renders the whole tree and turns every read into prop-drilling.
 - **Reach for global/context state only when the value is genuinely app-wide** (session/user, theme, feature flags) or when lifting would thread a prop through four or more layers. Say why in the code or the PR, because global state is the hardest thing here to remove later.
-- **Server data is not application state.** No client cache library is installed; keep server data at route/page boundaries and in feature-local query modules, and copy it into local state only for an in-progress edit buffer.
+- **Server data is not application state.** No client cache library is installed (no TanStack Query, no SWR); keep server data at route/page boundaries and in feature-local query modules, and copy it into local state only for an in-progress edit buffer — then drop it on save, or you own an invalidation bug forever.
 - Derive, do not duplicate. If a value is computable from existing state or props, compute it during render rather than storing it in a second state variable that can drift.
 
 ## Data fetching
 
-- **Never call the raw HTTP primitive (for example `fetch`) directly from a component body.** No shared wrapper exists yet (see above — a gap, not a convention), so route network access through a dedicated hook or the owning feature module under `lib/<feature>/`, and extend that module when its contract is missing.
+- **Never call the raw HTTP primitive (for example `fetch`) directly from a component body.** No shared wrapper exists yet (see above — a gap, not a convention), so route network access through a dedicated hook or the owning feature module under `lib/<feature>/`, and extend that module when its contract is missing. `app/api/<area>/route.ts` handlers call the DB/feature modules server-side rather than fetching their own HTTP surface.
 - If an endpoint's response type is missing or wrong, fix it in the shared types — do not cast at the call site. A local cast makes the next caller repeat the bug.
 - **Avoid request waterfalls.** Requests that do not depend on each other are issued in parallel, not sequentially awaited. A child component that fetches data its parent could have requested alongside its own turns one round-trip into two.
 - Fetch at the route/page level or in a dedicated hook — not inside deeply nested presentational components, which makes the request count a function of the render tree.
@@ -838,84 +1085,97 @@ Deleting a button is never the whole change. When you remove the last entry poin
 
 # UI Design System
 
-> **Applies when:** the project ships screens a human looks at.
-> **Delete this file:** never; Nexalog ships a web UI (and a Flutter app under `mobile/`).
+> **Applies when:** the project ships screens a human looks at (web app, desktop app, mobile app, or a styled docs/marketing surface).
+> **Delete this file (and its `@` import in `CLAUDE.md`) if:** the project has no user interface — a library, CLI, service, or job runner. Nothing here applies to terminal output.
 
 ## Design reference
 
-**This UI should feel like: Nexalog's own existing screens** — built on shadcn/ui and the Tailwind v4 CSS custom-property theme tokens in `app/globals.css` (`--background`, `--foreground`, `--sidebar-*`, `--ring`, `--input`, `--font-body`, `--font-code`, `--font-heading`, `--copper`). No external named design reference is established for this product; consistency with the existing screens is the target. The theme is dark-by-default ("warm walnut": `:root` is dark, `.light` is opt-in, so `dark:` variants are essentially unused and `light:` is the override). Brand work in progress lives under `brand-rework/`.
+**This UI should feel like: Nexalog's own existing screens** — built on shadcn/ui and the Tailwind v4 CSS custom-property theme tokens in `app/globals.css` (`--background`, `--foreground`, `--sidebar-*`, `--ring`, `--input`, `--font-body`, `--font-code`, `--font-heading`, `--copper`). No external named design reference is established for this product; consistency with the existing screens **is** the target, and it is the same aesthetic family: warm, dense, knowledge-work tooling rather than a marketing surface.
+
+Name a real product, not adjectives — "clean and modern" means nothing shared. Here the named target is the app itself: when you are unsure how a border, an empty state, or a row highlight should behave, open two existing screens and copy them rather than inventing a third answer. Brand exploration in progress lives under `brand-rework/` and is **not** yet the reference; do not design to it.
 
 ## Visual style
 
-| Axis | This project |
-| --- | --- |
-| Chrome weight | Not formally documented — match existing screens: shadcn/ui primitives, hairline `border-border` |
-| Palette strategy | Token-driven via `app/globals.css`: dark walnut surfaces by default, copper accent (`--copper`, `--copper-dim`), light theme opt-in |
-| Density | Not formally documented — match existing screens (dense knowledge-work UI) |
-| Default text size | `text-sm` body dominates existing screens; labels `text-xs` |
-| Hover and motion | Not formally documented — match existing screens; `tw-animate-css` is available |
+Pick one value per axis and hold it everywhere. An inconsistent axis is more noticeable than a "wrong" one. The theme is **dark-by-default** ("warm walnut"): `:root` is dark and `.light` is opt-in, so `dark:` variants are essentially unused and `light:` is the override.
 
-## Layout patterns
+| Axis | The choice to make | This project |
+| --- | --- | --- |
+| Chrome weight | flat/hairline borders → soft cards → heavy shadowed surfaces | Hairline `border-border` on shadcn/ui primitives; no heavy shadows. Not formally documented — match existing screens. |
+| Palette strategy | monochrome + one accent → two-tone brand → full multi-hue | Token-driven via `app/globals.css`: dark walnut surfaces by default, copper accent (`--copper`, `--copper-dim`), light theme opt-in |
+| Density | dense (max info per viewport) → balanced → airy/marketing | Dense knowledge-work UI. Not formally documented — match existing screens. |
+| Default text size | small-body UI → standard-body → large/accessible-first | `text-sm` body dominates existing screens; labels `text-xs` |
+| Hover & motion | near-static, tint-only → light transitions → animated/expressive | Near-static; `tw-animate-css` is available. Not formally documented — match existing screens. |
 
-- **Detail / record page:** primary content stays in the main pane; metadata and secondary actions stay in the sidebar.
-- **List / index page:** search and filters sit above the list; use one pagination or infinite-scroll pattern per area.
-- **Dashboard:** summary first, detail below; every metric links to the records it summarizes.
-- **Form / wizard:** labelled groups, progressive disclosure, and preserved input after failed submission.
-- **Async surfaces:** loading, empty, and error states are all designed; see `frontend.md` and `error-handling.md`.
+*Worked example (one product's answers — an illustration, not a mandate):* hairline borders and no drop shadows; monochrome with a single accent reserved for links and interactive affordances; dense layout with minimal padding; small body text with an even smaller label size; hover = a faint background tint, never a color jump.
+
+## Layout patterns by page archetype
+
+- **Detail / record page** — the primary pane is whatever the user actually came to see (the timeline, the document, the run log), not a grid of metadata. Metadata, related records, and destructive actions go in a secondary sidebar. A full-width header carries back-navigation, the record's name, and status. Getting this backwards — fields center-stage, real content in a tab — is the single most common design regression.
+- **List / index page** — full-width table or list, search plus filters directly above it, one consistent pagination or infinite-scroll mechanism, row click navigates to the detail page, primary "create" action top-right. Do not mix pagination styles across lists.
+- **Dashboard** — a scannable summary row on top, detail below; every tile states its time window and links to the filtered list it summarizes. A number with no drill-through is decoration.
+- **Form / wizard** — one column, grouped into labelled sections; multi-step only when steps are genuinely sequential, and then show step position and allow going back without data loss.
+- **Empty, loading, and error states** — designed, never default. Empty states name what would appear here and offer the action that creates it; loading uses skeletons matching the real layout so nothing jumps; error states say what failed and what to do next. See `error-handling.md`; these three are required for every async surface (see `frontend.md`).
 
 ## Component conventions
 
-- Generic primitives live in `components/ui/`; product-aware components live in `components/` outside `ui/`.
-- Assemble from existing primitives before inventing a new one. Add a primitive only when no existing combination expresses the need.
-- Variants are a closed, named set declared on the primitive. Do not override primitive internals at call sites.
-- Presentation may map a status to a visual variant; business eligibility rules stay outside components.
-- Use `lucide-react` at `h-4 w-4` for standard icons. Deviate only for deliberate hero or empty-state graphics.
-- Styling goes through Tailwind CSS v4 and shadcn/ui. Do not introduce a second styling mechanism.
+- **Primitives vs. domain components.** Generic, reusable, product-unaware primitives live in `components/ui/` (shadcn/ui, configured via `components.json`). Components that know about the product's nouns live in `components/` outside `ui/`. Mixing them makes primitives unreusable and domain components untestable.
+- **Assemble before you invent.** A new component is composed from existing primitives first. Add a new primitive only when no combination expresses it — then add it to `components/ui/` so the next person finds it instead of building a third variant.
+- **Variants are a closed, named set**, declared on the primitive and reused verbatim (an illustrative set: `default`, `primary`, `success`, `warning`, `destructive`, `info`). Never style a one-off by overriding a primitive's internals from the call site — that override becomes the fourth unofficial variant.
+- **Presentation never encodes a business rule.** A badge's variant map — which status renders as destructive — is presentation and belongs here. *What makes a record "at risk"* is a domain rule and does not (see `clean-architecture.md`). A component that decides eligibility has made that rule unavailable to every other surface, and the two will disagree.
+- **One icon library and one icon size.** Use `lucide-react` at `h-4 w-4` everywhere; deviate only for a deliberate hero/empty-state graphic. Mixed icon sets and drifting sizes read as broken before anyone can say why.
+- Styling goes through Tailwind CSS v4 and shadcn/ui. Do not introduce a second styling mechanism alongside it.
 
-## Typography and spacing scale
+## Typography & spacing scale
 
-| Role | This project |
-| --- | --- |
-| Section header | `text-xs font-medium text-muted-foreground` |
-| Field label | `text-xs text-muted-foreground` |
-| Field value | `text-sm` |
-| Section padding | `p-4` |
-| Element gap | `gap-2` |
-| Borders | `border border-border` |
+Fill each row from the project's own tokens, then treat the table as the vocabulary — no ad-hoc sizes at call sites.
 
-Use these literals before adding a new size or spacing value. Extend the scale deliberately when the existing vocabulary cannot express the design.
+| Role | This project | Worked example (illustration only) |
+| --- | --- | --- |
+| Section header | `text-xs font-medium text-muted-foreground` | small, semibold, muted, uppercase with slight letter-spacing |
+| Field label | `text-xs text-muted-foreground` | one step below body, muted foreground |
+| Field value | `text-sm` | body size, full-contrast foreground |
+| Section padding | `p-4` | one padding step (~16px) on every panel |
+| Element gap | `gap-2` | one vertical rhythm step (~12–16px) between stacked elements |
+| Borders | `border border-border` | 1px solid border token; a lower-opacity variant for row dividers |
+
+Two sizes of the same thing is a bug: if a screen needs a size not in this table, extend the table rather than hardcoding a value.
 
 ## Forms
 
-- Labels sit above inputs and remain associated with them.
-- Pair short related fields in a two-column grid; keep long or free-text fields single-column.
-- Show conditional fields after the choice that makes them relevant.
-- Keep primary and cancel actions in the same position and order across forms.
-- Show field errors beside the offending field; reserve banners for submission failures.
-- Preserve entered data after failed submission.
+- **Labels above inputs**, never beside. Left-aligned labels break at narrow widths and force a second layout.
+- **Pair related fields in a two-column grid** (first/last name, start/end date) so the form reads as groups; keep single-column for anything long or free-text.
+- **Progressive disclosure driven by earlier answers** — fields that only apply to a chosen type appear after that choice. Do not render disabled fields that may never apply; disabled controls read as broken.
+- **Button placement is consistent across every form in the app**: primary submit and its cancel neighbour in the same position and order everywhere. Pick one and never vary it per screen.
+- **Errors are inline, adjacent to the offending field**, in the small destructive-text style, and the field itself gains an error border. A form-level banner is for submission failures only, not field validation.
+- Preserve entered data on failed submission. Re-typing a form because the server rejected one field is the fastest way to lose a user.
 
 ## Consistency check
 
-1. Match Nexalog's existing screens and the `app/globals.css` token set.
-2. Keep chrome, palette, density, text, hover, and motion consistent.
-3. Keep the primary content in the primary pane on detail screens.
-4. Verify loading, empty, error, keyboard, and focus states.
-5. Reuse primitives before adding components or variants.
-6. Use one icon library at the standard size.
-7. Use the typography, spacing, and border scale above.
+Run this against any new or changed screen before calling it done:
+
+1. Does it match the app's existing screens and the `app/globals.css` token set, or did it drift toward a different product's look?
+2. Every visual-style axis above matches the rest of the app (chrome, palette, density, text size, hover).
+3. It follows its page archetype's layout — and on a detail page, the primary pane holds real content, not metadata.
+4. Loading, empty, and error states all exist and were actually viewed, not assumed.
+5. No new primitive that an existing one could have covered; no primitive overridden from a call site.
+6. All icons from one library at the standard size.
+7. Every size, spacing, and border value comes from the scale table — no ad-hoc values.
+8. Forms: labels above, consistent button placement, inline field errors, input preserved on failure.
+9. Keyboard and focus behavior verified per `frontend.md` — the design is not done if it is mouse-only.
 
 ---
 
 # AI Features & Data Enrichment
 
 > **Applies when:** the project calls a language model, or fills in record fields from third-party data sources.
-> **Delete this file (and its `@` import in CLAUDE.md) if:** the project does neither.
+> **Delete this file (and its `@` import in `CLAUDE.md`) if:** the project does neither.
 
 ## Design for the next model, not this one
 
 - **Model providers and enrichment vendors are Frameworks & Drivers, and they sit behind ports.** In this repo the port is real: the **IntelligencePort** (`lib/intelligence/port.ts`) with two adapters — an embedded adapter (`lib/intelligence/embedded-adapter.ts`, direct provider via raw `fetch`, no SDK) as the standalone baseline, and a Plexo adapter (`lib/intelligence/plexo-adapter.ts`) that supersedes it when Plexo is present and authorized (ADR-0014/0015/0017). The use case declares the capability it needs (`classify`, `summarize`); the adapter implements it. See `clean-architecture.md`. That is the whole reason a provider swap or a model upgrade is a one-adapter change instead of a grep across every feature.
 - **Nothing inward of that adapter may name a provider, a model identifier, or a vendor's response shape.** A use case that branches on which model answered has hardcoded a Detail into a business rule, and the next upgrade has to touch it. Branching on *which adapter* is active is the port resolver's job (`lib/intelligence/resolve.ts`), never a feature's.
-- **No AI SDK imports.** `openai`, `@anthropic-ai/sdk`, and LangChain are banned dependencies; the embedded adapter talks to providers with raw `fetch` behind the port. No Sentry or PostHog either, and no other observability or job-queue vendor may be added — Plexo handles observability and async work, and Plexo is optional: features run standalone on the embedded adapter and must never hard-block when Plexo is absent or unauthorized.
+- **Model identifiers, prompts, and tuning parameters are configuration, read through `lib/env.ts`** (`LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`), never literals at a call site. The embedded adapter degrades through the typed error shape when no key is set — a surface that cannot enrich must render the un-enriched view, never hard-fail.
+- **No AI SDK imports.** `openai`, `@anthropic-ai/sdk`, and `ai` are banned dependencies; the embedded adapter talks to providers with raw `fetch` behind the port. No Sentry or PostHog either, and no other observability or job-queue vendor may be added — Plexo handles observability and async work, and Plexo is optional: features run standalone on the embedded adapter and must never hard-block when Plexo is absent or unauthorized.
 - **Build so that swapping in a newer model produces a visible quality improvement with zero code changes.** Model identifiers, prompts, and tuning parameters are configuration; if upgrading means editing call sites, the upgrade will be deferred and the product will quietly stay a generation behind.
 - Route every model call through one internal client — here, the IntelligencePort. Prompt selection, model selection, retries, timeouts, token accounting, and logging live in the adapters, not scattered across features.
 - **Keep prompts as configuration, not hardcoded strings.** Store them as versioned templates (files or table rows) with named variables. This is what lets you iterate a prompt without a deploy and diff which version produced which output — and it is the same principle as the port: a prompt hardcoded at a call site is a Detail that has escaped into a business rule.
@@ -951,138 +1211,3 @@ Use these literals before adding a new size or spacing value. Extend the scale d
 - Set explicit timeouts and cost/rate ceilings on every model and vendor call, and degrade to the un-enriched view on failure rather than erroring the page.
 - Never send more of a record to a third party than the feature needs, and keep the redaction rules in the shared client, not per feature.
 
----
-
-<!-- MODULE:agent — KEEP IF the app should be usable by an AI agent (a harness such as Hermes, OpenClaw, Claude Code, Cursor) as well as by a human in its own UI. DELETE otherwise. -->
-
-# Agent Readiness (dual-mode apps)
-
-> **Applies when:** the app is expected to work both under a human in its own UI *and* under an AI agent — either driven by an external harness, or autonomously with nothing but an LLM API key.
-> **Delete this file (and its `@` import in CLAUDE.md) if:** the app is a human-only surface with no programmatic consumer and none planned.
-
-## The premise
-
-Software is acquiring a second user. Alongside the human clicking through the UI there is an agent — a harness like Hermes or OpenClaw, an autonomous loop, or another service's agent — that needs to do the same work without a browser, without eyes, and without patience for ambiguity. That agent is not a hypothetical future consumer: it is a client class, and like every client class it has hard requirements.
-
-The design consequence is one sentence: **the UI is a client of the API, never the owner of a capability.** Anything a human can do in the app, an agent must be able to do headlessly through a published surface. A capability that exists only as a button handler does not exist as far as an agent is concerned — and, by the same token, does not exist for your own background jobs, your CLI, your tests, or the next UI you build.
-
-This is not an "AI features" module. `ai-features.md` governs the app *calling* a model. This governs the app *being called by* one. They are different problems with different rules, and an app can need both, either, or neither.
-
-**Dual-mode means both modes are first-class.** The app must:
-
-1. **Stand alone with only an LLM API key.** Point it at any OpenAI-compatible endpoint — a vendor directly, or a gateway such as LiteLLM — and every model-dependent feature works. No harness required, no account with a third party required.
-2. **Be drivable by a harness.** Expose its capabilities over the standard agent surfaces so an external agent can discover and use them without a bespoke integration written per app.
-
-Failing mode 1 makes the app unrunnable for a solo user. Failing mode 2 makes the app invisible to agents. Both are required.
-
-## The three surfaces — non-negotiable minimum
-
-An agent can only use an app if it can **discover** it, **call** it deterministically, and **delegate** to it. Each surface answers one of those, and they are layered — you cannot skip the lower one.
-
-| Surface | Answers | Minimum bar |
-| --- | --- | --- |
-| **HTTP API** | *call it* | Every mutation reachable as a typed JSON endpoint with an idempotency key and a machine-readable error code. Inherits all of `api-design.md`. |
-| **MCP server** | *use its capabilities* | A thin MCP adapter exposing those endpoints as tools, with schemas **generated from the API's own validation schemas**. Lives at a documented, reachable transport (Streamable HTTP for remote, stdio for local). |
-| **A2A agent card** | *discover + delegate* | `/.well-known/agent-card.json` served by the app, declaring identity, endpoint, auth schemes, protocol version, and skills. Signed if the app participates in cross-organization delegation. |
-
-MCP and A2A are complementary, not competing: MCP is agent-to-tool (the caller orchestrates and consumes capabilities), A2A is agent-to-agent (the remote agent keeps its own plan, memory, and execution and reports back over a stateful task). An app that exposes both lets a harness treat it as a toolbox *or* delegate a goal to it, whichever fits the interaction. Start with the HTTP API and MCP; add the A2A card the moment anything needs to discover the app rather than be pointed at it.
-
-## Where these sit in Clean Architecture
-
-**All three surfaces are Interface Adapters. None of them may contain a business rule.**
-
-This is the property that keeps agent-readiness cheap instead of a rewrite. The HTTP handler, the MCP tool, and the A2A task handler are three adapters over the *same* use cases — they parse a request in a different vocabulary, call one use case, and map the result to a different response shape. Deleting all three would lose zero business logic.
-
-The mechanical consequences:
-
-- **The MCP server never reimplements anything.** If an MCP tool contains a rule, a query, or a calculation, that logic is duplicated and will drift from the HTTP path. It calls the use case the HTTP handler calls. When a tool needs data the use case does not return, extend the use case — do not bolt a second query into the adapter.
-- **The A2A handler is a task adapter.** It maps a delegated goal onto use cases and reports state transitions. It does not decide what the app does.
-- **Provider SDKs stay behind ports** exactly as `ai-features.md` requires for model calls. Nothing inward of the adapter names a harness, an MCP library, or an agent framework.
-
-## Rules
-
-### The HTTP API is the foundation
-
-- **Full parity with the UI.** Every action the UI can perform is an endpoint. A screen-only action is a capability the app does not have. Audit by walking the UI's command surface and naming the endpoint for each; the gaps are the work.
-- **Idempotency keys on every mutation.** Agents retry — on timeout, on ambiguous error, on a model deciding to try again. Without idempotency a retry is a duplicate record, a double charge, a second send. Accept a client-supplied key (`Idempotency-Key` header or an explicit field), persist it with the result, and return the original result on replay rather than re-executing. This is the single highest-value rule in this module: it is the difference between an agent that can be trusted with writes and one that cannot.
-- **Structured errors an agent can act on.** A stable machine-readable code, a human message, and — critically for agents — enough signal to distinguish *retry* from *fix your input* from *give up*. A bare 500 with a stack trace costs an agent a full reasoning loop to interpret; `{"code":"validation_failed","fields":[{"name":"due_date","issue":"past_date"}]}` costs it nothing. Inherit the typed error shape from `api-design.md` and `error-handling.md`; never return 200 with an error body.
-- **Machine-readable pagination, filtering, and sorting on every collection.** An agent cannot scroll and cannot see "Load more". Cursor-based paging with a stable next-token, plus declared filter/sort parameters, so an agent can enumerate a whole collection deterministically.
-- **Schema-published responses.** Types generated from the same validation schemas that enforce them, so the documented contract cannot disagree with the running code. This is also what lets the MCP layer generate its tool schemas instead of hand-writing a second copy.
-
-### The MCP server
-
-- **Schemas are generated, never hand-maintained.** A hand-written MCP tool schema is a second source of truth and it will drift — silently, because nothing tests the drift. Generate tool input/output schemas from the API's validation schemas (zod, pydantic, JSON Schema) in the same build step that generates the API types.
-- **Tool descriptions are written for a model, not a developer.** The description *is* the affordance: an agent picks tools by reading them. State what the tool does, when to choose it, what each parameter means, and what comes back. Name the tool for the user-visible outcome (`create_task`), not the internal operation (`insertTaskRow`).
-- **One tool per meaningful capability, not one per endpoint.** Blindly mirroring every route produces a tool list too long for a model to reason over and too granular to complete a goal. Group where the user's intent is one action; split where a single route serves genuinely different intents.
-- **Expose read models as resources where the harness supports them.** State an agent will re-read often (a record, a list, a config) belongs in MCP resources/prompts, not only in tools, so the harness can cache and re-fetch it without burning a reasoning turn.
-- **Surface failures as tool results, not transport errors.** An agent recovers from a well-formed "this failed because X" result; it flails at a dropped connection. Validate, catch, and return a structured error the model can act on.
-
-### The A2A surface
-
-- **Serve the agent card at the well-known path** (`/.well-known/agent-card.json`), reachable without authentication — it is the discovery document, and a card behind a login cannot be found. Declare: identity, the protocol version, the service endpoint, supported transports, auth schemes, and the skills the agent can delegate to.
-- **Skills are described in outcome terms with their I/O and auth requirements**, so a delegating agent can decide fit without reading your source.
-- **Long-running work is a stateful task, not a blocking request.** Agents delegate goals that take minutes. Return a task immediately, expose status, stream or allow polling for updates, support cancellation, and emit artifacts as the concrete output. Never hold an HTTP connection open for the duration of real work.
-- **Support human-in-the-loop pauses.** A delegated task that needs a decision the agent cannot make must be able to enter an input-required state and resume, rather than fail or guess.
-
-### LLM configuration — bring-your-own-key, gateway-agnostic
-
-- **Configure through OpenAI-compatible environment variables only.** `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` (plus optional `LLM_EMBEDDING_MODEL`, timeouts, and ceilings). One base URL and one key must be enough to run every model-dependent feature.
-- **Never hardcode a vendor endpoint or import a vendor SDK outside its adapter.** A hardcoded `api.openai.com` breaks the gateway case; a vendor SDK inside feature code breaks the swap. Everything routes through the one internal client `ai-features.md` requires.
-- **Works with a raw vendor key, a self-hosted gateway, or a harness-provided endpoint — identical code path.** If the app can only run against one of the three, it is not dual-mode.
-- **Degrade, do not crash, when no key is present.** Every model-dependent feature reports "not configured" through the normal typed-error shape and the rest of the app works. An agent exploring an app should not take the whole process down by touching an unconfigured feature.
-- **Never require an account with a third party to run the app.** A signup wall in front of basic operation is the same failure as a hardcoded vendor.
-
-### Agent identity, permissions, and trust
-
-- **An agent is a distinct principal.** Issue scoped API keys (or OAuth client credentials) for non-human callers — never have an agent log in as a human user or drive a browser session. A key identifies *which agent*, so its actions are attributable.
-- **Scopes are real and enforced per record**, not a label. An agent key gets the least privilege its task needs: read-only for exploration, narrow write scopes for action. Enforce at the boundary *and* in the use case, since a second entrypoint (MCP, A2A, job) skips the first.
-- **Rate limits and cost ceilings per principal.** An agent in a loop can do in seconds what a human could not do in a year. Limit by key, return `429` with a retry-after, and make the limit discoverable.
-- **Everything an agent does is visible in the human UI.** Record the acting principal on every mutation and surface it: an activity log, a badge on records the agent touched, a dedicated "agent activity" view. **Trust requires visibility** — a human who cannot see what the agent did cannot trust the app, and will disable the integration. This is a product requirement, not a compliance nicety.
-- **Provenance on agent-written data**, per `ai-features.md`: which agent, which model version, which prompt version, when, and whether a human accepted or overrode it.
-- **Reversible by default.** Prefer soft-delete and audit-logged updates for agent-initiated writes. An agent that cannot be undone is an agent nobody enables.
-- **Guard against prompt injection crossing the boundary.** Content an agent fetched from outside is untrusted input, not an instruction. Never let a value that arrived from an LLM, a webhook, or a scraped page authorize a privileged action on its own — the authorization decision is made by the use case against the authenticated principal's scopes, full stop.
-
-## Verification — what "agent-ready" means in CI
-
-Prose does not hold a line; a required CI gate does (see AGENTS.md → "Enforcement — the honest version"). `scripts/check-agent-readiness.sh` is the mechanical floor, and it checks what can be checked without judgement:
-
-- the agent card exists and is valid JSON declaring the required fields, and is served at the well-known path;
-- every mutation route accepts an idempotency key;
-- the MCP tool schemas are generated (not hand-written) and in sync with the API schemas;
-- no vendor LLM endpoint or model identifier is hardcoded outside the LLM adapter;
-- the app starts and passes a smoke test with only `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` set — the standalone-with-one-key proof.
-
-The parts that need judgement are the review checklist below and the **agent-perspective smoke test**: point a real harness at the app with a fresh scoped key and attempt a representative goal end to end — discover, read, write, observe the write in the UI, undo it. Do this before calling an app agent-ready, and record the result in the plan doc. A gate that passes while a real agent cannot complete a task is a gate measuring the wrong thing.
-
-## Review checklist
-
-- [ ] Every capability reachable in the UI is reachable through the API; I walked the UI and named the endpoint for each action.
-- [ ] Every mutation accepts an idempotency key and replays the original result instead of re-executing.
-- [ ] Every error an agent can hit carries a machine-readable code that distinguishes retry / fix-input / give-up.
-- [ ] Every collection supports cursor pagination plus declared filter and sort parameters.
-- [ ] The MCP server contains no business rule — only parsing, a use-case call, and response mapping.
-- [ ] MCP tool schemas are generated from the API's validation schemas, and the generation runs in CI.
-- [ ] Tool names and descriptions read as user-visible outcomes and would let a model pick correctly without source access.
-- [ ] `/.well-known/agent-card.json` is served unauthenticated, validates, and declares endpoint, auth schemes, version, and skills.
-- [ ] Long-running delegated work returns a stateful task with status, streaming or polling, and cancellation — no request held open.
-- [ ] A task that needs human input can pause and resume rather than fail or guess.
-- [ ] LLM access is configured solely by `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`; no vendor endpoint or model ID appears outside the adapter.
-- [ ] The app runs with no LLM key set — unconfigured features degrade through the typed-error shape, nothing crashes.
-- [ ] Non-human callers authenticate with their own scoped keys, never a human session; scopes are enforced in the use case, not only the route.
-- [ ] Rate limits and cost ceilings exist per principal and return a discoverable retry signal.
-- [ ] Agent-initiated writes are attributable in the human UI and reversible (soft-delete / audit log).
-- [ ] Untrusted content crossing the boundary cannot authorize a privileged action by itself.
-- [ ] A real harness completed a representative goal end to end against this app, and the result is recorded in the plan doc.
-
-## Anti-patterns
-
-- **A bolt-on MCP server that reimplements logic.** It drifts from the API within weeks and then two code paths disagree about what the app does. MCP is an adapter.
-- **"Agent mode" as a separate feature.** A toggle that exposes a subset of capabilities to agents builds a second, worse app. Make the primary surface agent-readable.
-- **Screen-scraping as the integration path.** If the only way for an agent to use the app is to drive its UI, the app has no API — it has a puppet. Publish the surface instead.
-- **The UI as the only client.** Business rules inside components or handlers are invisible to every other consumer (agents, jobs, CLI, tests) and are the layering violation `clean-architecture.md` already forbids.
-- **A vendor-locked LLM config.** Requiring one provider's key and endpoint breaks gateway users, self-hosters, and anyone whose harness supplies its own model access.
-- **Unattributed agent writes.** Records that changed and nobody can say what changed them: the human loses trust, disables the integration, and the capability is wasted.
-- **Hand-written MCP schemas.** Two sources of truth for one contract, with no test detecting the divergence.
-- **Idempotency deferred to "later".** It is cheap at design time and expensive as a retrofit, and until it lands an agent must be treated as unsafe for writes — which is most of the value.
-
-<!-- /MODULE:agent -->

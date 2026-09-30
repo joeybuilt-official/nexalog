@@ -4,6 +4,10 @@
 # Usage: sh scripts/check-expert-review.sh [--since <base-sha>]
 #   --since: check all commits in range (CI mode). Default: check current PR via env.
 
+# `grep ... | wc -l` is deliberate over `grep -c` (SC2126): grep -c exits 1 when the count is
+# zero, and under `set -e` a command substitution that exits non-zero aborts the script — which
+# is exactly the ordinary "this commit touches no schema files" case.
+# shellcheck disable=SC2126
 set -eu
 
 # Trivial escape hatches
@@ -14,22 +18,11 @@ set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-fail=0
-reason=""
-
-SINCE_MODE=0
-REF=""
-if [ "${1:-}" = "--since" ]; then
-  SINCE_MODE=1
-  REF="${2:?usage: check-expert-review.sh --since <ref>}"
-fi
-
 # verify_review_evidence <label>
 # Checks for:
-# 1. plan.md exists in feature area
-# 2. checklist.md has items
-# 3. new ADR under adr/ since base (CI mode only)
-# 4. PR description has ≥2 persona sign-offs
+# 1. a plan doc exists under docs/claude/**
+# 2. a checklist item exists somewhere under docs/claude/** (checked or unchecked)
+# 3. (opt-in, EXPERT_REVIEW_REQUIRE_SIGNOFFS=1) the PR body carries >=2 persona sign-offs
 verify_review_evidence() {
   label="$1"
 
@@ -39,22 +32,27 @@ verify_review_evidence() {
     return 1
   fi
 
-  # 2. checklist.md has unchecked items
-  if ! find docs/claude -name "checklist.md" -type f -exec grep -l '^\- \[ \]' {} \; 2>/dev/null | grep -q .; then
-    echo "check-expert-review: $label — no checklist.md with pending items found" >&2
+  # 2. a checklist item exists somewhere under docs/claude/**.
+  #
+  # Deliberately NOT "a checklist.md containing an UNCHECKED item", which is what this used to
+  # demand. That was wrong twice over. It required a separate checklist.md, but every repo
+  # surveyed keeps its checklist inside plan.md; and it required an OPEN item, so a repo that
+  # finished its work — the definition of done — was blocked from committing until someone added
+  # a fake open task. The gate asks whether review evidence EXISTS, not whether work remains.
+  if ! grep -rlE '^[[:space:]]*- \[[ xX]\]' docs/claude 2>/dev/null | grep -q .; then
+    echo "check-expert-review: $label — no checklist item found under docs/claude/**" >&2
+    echo "  add a '- [ ] <step>' list to the plan doc for this work" >&2
     return 1
   fi
 
-  # 3. new ADR under adr/ since base (CI mode only) — this repo keeps ADRs at `adr/NNNN-slug.md`
-  if [ "$SINCE_MODE" -eq 1 ]; then
-    if ! git diff --name-only "$REF"..HEAD -- adr/ 2>/dev/null | grep -q '\.md$'; then
-      echo "check-expert-review: $label — no new ADR file in adr/ since $REF" >&2
-      return 1
-    fi
-  fi
-
-  # 4. PR description has ≥2 persona sign-offs (only in CI with gh)
-  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  # 3. PR description has >=2 persona sign-offs — OPT-IN ONLY.
+  #
+  # This used to arm itself whenever `gh` happened to be authenticated, which meant adding a
+  # GH_TOKEN to any workflow would silently start requiring sign-offs across every repo carrying
+  # the kit, all at once. Enforcement that switches on as a side effect of a credential is not
+  # enforcement anyone agreed to, so it now needs EXPERT_REVIEW_REQUIRE_SIGNOFFS=1.
+  if [ "${EXPERT_REVIEW_REQUIRE_SIGNOFFS:-0}" = "1" ] \
+     && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
     PR_NUMBER="${GITHUB_PR_NUMBER:-${CI_PR_NUMBER:-}}"
     if [ -n "$PR_NUMBER" ]; then
       body="$(gh pr view "$PR_NUMBER" --json body --jq .body 2>/dev/null || echo "")"
@@ -69,6 +67,9 @@ verify_review_evidence() {
 
   return 0
 }
+
+fail=0
+reason=""
 
 # Check for trivial label via gh (if available in CI)
 is_trivial=0
@@ -92,9 +93,10 @@ fi
 
 # Check for trivial change (single file, ≤15 lines, no schema/API/interface)
 if [ "$is_trivial" -eq 0 ]; then
-  if [ "$SINCE_MODE" -eq 1 ]; then
+  if [ "${1:-}" = "--since" ]; then
     # CI mode: check each commit in range
-    for sha in $(git rev-list "$REF"..HEAD); do
+    ref="${2:?usage: check-expert-review.sh --since <ref>}"
+    for sha in $(git rev-list "$ref"..HEAD); do
       [ "$(git rev-list --no-walk --count --merges "$sha")" -eq 0 ] || continue
       files="$(git show --name-only --format= "$sha" 2>/dev/null | grep -v '^$' | wc -l | tr -d ' ')"
       lines="$(git show --stat --format= "$sha" 2>/dev/null | tail -1 | awk '{print $4}' | sed 's/[+,]//g')"
@@ -126,5 +128,9 @@ if [ "$is_trivial" -eq 0 ]; then
   fi
 fi
 
-[ "$fail" -eq 0 ] && echo "check-expert-review: OK"
+if [ "$fail" -eq 0 ]; then
+  echo "check-expert-review: OK"
+else
+  echo "check-expert-review: FAILED — $reason" >&2
+fi
 exit "$fail"

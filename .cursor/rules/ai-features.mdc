@@ -8,13 +8,14 @@ alwaysApply: true
 # AI Features & Data Enrichment
 
 > **Applies when:** the project calls a language model, or fills in record fields from third-party data sources.
-> **Delete this file (and its `@` import in CLAUDE.md) if:** the project does neither.
+> **Delete this file (and its `@` import in `CLAUDE.md`) if:** the project does neither.
 
 ## Design for the next model, not this one
 
 - **Model providers and enrichment vendors are Frameworks & Drivers, and they sit behind ports.** In this repo the port is real: the **IntelligencePort** (`lib/intelligence/port.ts`) with two adapters — an embedded adapter (`lib/intelligence/embedded-adapter.ts`, direct provider via raw `fetch`, no SDK) as the standalone baseline, and a Plexo adapter (`lib/intelligence/plexo-adapter.ts`) that supersedes it when Plexo is present and authorized (ADR-0014/0015/0017). The use case declares the capability it needs (`classify`, `summarize`); the adapter implements it. See `clean-architecture.md`. That is the whole reason a provider swap or a model upgrade is a one-adapter change instead of a grep across every feature.
 - **Nothing inward of that adapter may name a provider, a model identifier, or a vendor's response shape.** A use case that branches on which model answered has hardcoded a Detail into a business rule, and the next upgrade has to touch it. Branching on *which adapter* is active is the port resolver's job (`lib/intelligence/resolve.ts`), never a feature's.
-- **No AI SDK imports.** `openai`, `@anthropic-ai/sdk`, and LangChain are banned dependencies; the embedded adapter talks to providers with raw `fetch` behind the port. No Sentry or PostHog either, and no other observability or job-queue vendor may be added — Plexo handles observability and async work, and Plexo is optional: features run standalone on the embedded adapter and must never hard-block when Plexo is absent or unauthorized.
+- **Model identifiers, prompts, and tuning parameters are configuration, read through `lib/env.ts`** (`LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`), never literals at a call site. The embedded adapter degrades through the typed error shape when no key is set — a surface that cannot enrich must render the un-enriched view, never hard-fail.
+- **No AI SDK imports.** `openai`, `@anthropic-ai/sdk`, and `ai` are banned dependencies; the embedded adapter talks to providers with raw `fetch` behind the port. No Sentry or PostHog either, and no other observability or job-queue vendor may be added — Plexo handles observability and async work, and Plexo is optional: features run standalone on the embedded adapter and must never hard-block when Plexo is absent or unauthorized.
 - **Build so that swapping in a newer model produces a visible quality improvement with zero code changes.** Model identifiers, prompts, and tuning parameters are configuration; if upgrading means editing call sites, the upgrade will be deferred and the product will quietly stay a generation behind.
 - Route every model call through one internal client — here, the IntelligencePort. Prompt selection, model selection, retries, timeouts, token accounting, and logging live in the adapters, not scattered across features.
 - **Keep prompts as configuration, not hardcoded strings.** Store them as versioned templates (files or table rows) with named variables. This is what lets you iterate a prompt without a deploy and diff which version produced which output — and it is the same principle as the port: a prompt hardcoded at a call site is a Detail that has escaped into a business rule.
@@ -49,3 +50,4 @@ alwaysApply: true
 - Validate and constrain model output before it is stored or displayed — parse to a schema, reject what does not conform, and log the rejection. Never render raw model output into a trusted context.
 - Set explicit timeouts and cost/rate ceilings on every model and vendor call, and degrade to the un-enriched view on failure rather than erroring the page.
 - Never send more of a record to a third party than the feature needs, and keep the redaction rules in the shared client, not per feature.
+

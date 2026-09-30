@@ -41,14 +41,21 @@ The path of least resistance is not neutral: it spends someone else's time later
 
 ## Present two options and let the user decide
 
-When the decision is genuinely a judgement call, do not decide silently. Present it like this:
+When the decision is genuinely a judgement call, do not decide silently — and remember the owner is
+non-technical: plain language, one short line per option. Present it like this:
 
 1. **Option A** — one line on what it is; what it costs now; what it costs later.
 2. **Option B** — same.
 3. **What differs that actually matters** — the one or two axes the choice turns on.
 4. **Your recommendation, and why.**
 
-Then stop and wait. Do not start implementing either option while the question is open. Two well-drawn options with honest tradeoffs is a better deliverable than a confident single answer that quietly closed off the alternative.
+Then stop and wait. Do not start implementing either option while the question is open.
+
+- **Present it as tappable choices wherever the surface supports them** (an option picker, an
+  interactive prompt, one line per option in the PR description) — not as a wall of prose the reader
+  must mine. A decision the owner cannot act on with one tap did not get presented; it got deferred.
+- Two well-drawn options with honest tradeoffs is a better deliverable than a confident single
+  answer that quietly closed off the alternative.
 
 ## Applies to
 

@@ -7,68 +7,80 @@ alwaysApply: true
 
 # UI Design System
 
-> **Applies when:** the project ships screens a human looks at.
-> **Delete this file:** never; Nexalog ships a web UI (and a Flutter app under `mobile/`).
+> **Applies when:** the project ships screens a human looks at (web app, desktop app, mobile app, or a styled docs/marketing surface).
+> **Delete this file (and its `@` import in `CLAUDE.md`) if:** the project has no user interface — a library, CLI, service, or job runner. Nothing here applies to terminal output.
 
 ## Design reference
 
-**This UI should feel like: Nexalog's own existing screens** — built on shadcn/ui and the Tailwind v4 CSS custom-property theme tokens in `app/globals.css` (`--background`, `--foreground`, `--sidebar-*`, `--ring`, `--input`, `--font-body`, `--font-code`, `--font-heading`, `--copper`). No external named design reference is established for this product; consistency with the existing screens is the target. The theme is dark-by-default ("warm walnut": `:root` is dark, `.light` is opt-in, so `dark:` variants are essentially unused and `light:` is the override). Brand work in progress lives under `brand-rework/`.
+**This UI should feel like: Nexalog's own existing screens** — built on shadcn/ui and the Tailwind v4 CSS custom-property theme tokens in `app/globals.css` (`--background`, `--foreground`, `--sidebar-*`, `--ring`, `--input`, `--font-body`, `--font-code`, `--font-heading`, `--copper`). No external named design reference is established for this product; consistency with the existing screens **is** the target, and it is the same aesthetic family: warm, dense, knowledge-work tooling rather than a marketing surface.
+
+Name a real product, not adjectives — "clean and modern" means nothing shared. Here the named target is the app itself: when you are unsure how a border, an empty state, or a row highlight should behave, open two existing screens and copy them rather than inventing a third answer. Brand exploration in progress lives under `brand-rework/` and is **not** yet the reference; do not design to it.
 
 ## Visual style
 
-| Axis | This project |
-| --- | --- |
-| Chrome weight | Not formally documented — match existing screens: shadcn/ui primitives, hairline `border-border` |
-| Palette strategy | Token-driven via `app/globals.css`: dark walnut surfaces by default, copper accent (`--copper`, `--copper-dim`), light theme opt-in |
-| Density | Not formally documented — match existing screens (dense knowledge-work UI) |
-| Default text size | `text-sm` body dominates existing screens; labels `text-xs` |
-| Hover and motion | Not formally documented — match existing screens; `tw-animate-css` is available |
+Pick one value per axis and hold it everywhere. An inconsistent axis is more noticeable than a "wrong" one. The theme is **dark-by-default** ("warm walnut"): `:root` is dark and `.light` is opt-in, so `dark:` variants are essentially unused and `light:` is the override.
 
-## Layout patterns
+| Axis | The choice to make | This project |
+| --- | --- | --- |
+| Chrome weight | flat/hairline borders → soft cards → heavy shadowed surfaces | Hairline `border-border` on shadcn/ui primitives; no heavy shadows. Not formally documented — match existing screens. |
+| Palette strategy | monochrome + one accent → two-tone brand → full multi-hue | Token-driven via `app/globals.css`: dark walnut surfaces by default, copper accent (`--copper`, `--copper-dim`), light theme opt-in |
+| Density | dense (max info per viewport) → balanced → airy/marketing | Dense knowledge-work UI. Not formally documented — match existing screens. |
+| Default text size | small-body UI → standard-body → large/accessible-first | `text-sm` body dominates existing screens; labels `text-xs` |
+| Hover & motion | near-static, tint-only → light transitions → animated/expressive | Near-static; `tw-animate-css` is available. Not formally documented — match existing screens. |
 
-- **Detail / record page:** primary content stays in the main pane; metadata and secondary actions stay in the sidebar.
-- **List / index page:** search and filters sit above the list; use one pagination or infinite-scroll pattern per area.
-- **Dashboard:** summary first, detail below; every metric links to the records it summarizes.
-- **Form / wizard:** labelled groups, progressive disclosure, and preserved input after failed submission.
-- **Async surfaces:** loading, empty, and error states are all designed; see `frontend.md` and `error-handling.md`.
+*Worked example (one product's answers — an illustration, not a mandate):* hairline borders and no drop shadows; monochrome with a single accent reserved for links and interactive affordances; dense layout with minimal padding; small body text with an even smaller label size; hover = a faint background tint, never a color jump.
+
+## Layout patterns by page archetype
+
+- **Detail / record page** — the primary pane is whatever the user actually came to see (the timeline, the document, the run log), not a grid of metadata. Metadata, related records, and destructive actions go in a secondary sidebar. A full-width header carries back-navigation, the record's name, and status. Getting this backwards — fields center-stage, real content in a tab — is the single most common design regression.
+- **List / index page** — full-width table or list, search plus filters directly above it, one consistent pagination or infinite-scroll mechanism, row click navigates to the detail page, primary "create" action top-right. Do not mix pagination styles across lists.
+- **Dashboard** — a scannable summary row on top, detail below; every tile states its time window and links to the filtered list it summarizes. A number with no drill-through is decoration.
+- **Form / wizard** — one column, grouped into labelled sections; multi-step only when steps are genuinely sequential, and then show step position and allow going back without data loss.
+- **Empty, loading, and error states** — designed, never default. Empty states name what would appear here and offer the action that creates it; loading uses skeletons matching the real layout so nothing jumps; error states say what failed and what to do next. See `error-handling.md`; these three are required for every async surface (see `frontend.md`).
 
 ## Component conventions
 
-- Generic primitives live in `components/ui/`; product-aware components live in `components/` outside `ui/`.
-- Assemble from existing primitives before inventing a new one. Add a primitive only when no existing combination expresses the need.
-- Variants are a closed, named set declared on the primitive. Do not override primitive internals at call sites.
-- Presentation may map a status to a visual variant; business eligibility rules stay outside components.
-- Use `lucide-react` at `h-4 w-4` for standard icons. Deviate only for deliberate hero or empty-state graphics.
-- Styling goes through Tailwind CSS v4 and shadcn/ui. Do not introduce a second styling mechanism.
+- **Primitives vs. domain components.** Generic, reusable, product-unaware primitives live in `components/ui/` (shadcn/ui, configured via `components.json`). Components that know about the product's nouns live in `components/` outside `ui/`. Mixing them makes primitives unreusable and domain components untestable.
+- **Assemble before you invent.** A new component is composed from existing primitives first. Add a new primitive only when no combination expresses it — then add it to `components/ui/` so the next person finds it instead of building a third variant.
+- **Variants are a closed, named set**, declared on the primitive and reused verbatim (an illustrative set: `default`, `primary`, `success`, `warning`, `destructive`, `info`). Never style a one-off by overriding a primitive's internals from the call site — that override becomes the fourth unofficial variant.
+- **Presentation never encodes a business rule.** A badge's variant map — which status renders as destructive — is presentation and belongs here. *What makes a record "at risk"* is a domain rule and does not (see `clean-architecture.md`). A component that decides eligibility has made that rule unavailable to every other surface, and the two will disagree.
+- **One icon library and one icon size.** Use `lucide-react` at `h-4 w-4` everywhere; deviate only for a deliberate hero/empty-state graphic. Mixed icon sets and drifting sizes read as broken before anyone can say why.
+- Styling goes through Tailwind CSS v4 and shadcn/ui. Do not introduce a second styling mechanism alongside it.
 
-## Typography and spacing scale
+## Typography & spacing scale
 
-| Role | This project |
-| --- | --- |
-| Section header | `text-xs font-medium text-muted-foreground` |
-| Field label | `text-xs text-muted-foreground` |
-| Field value | `text-sm` |
-| Section padding | `p-4` |
-| Element gap | `gap-2` |
-| Borders | `border border-border` |
+Fill each row from the project's own tokens, then treat the table as the vocabulary — no ad-hoc sizes at call sites.
 
-Use these literals before adding a new size or spacing value. Extend the scale deliberately when the existing vocabulary cannot express the design.
+| Role | This project | Worked example (illustration only) |
+| --- | --- | --- |
+| Section header | `text-xs font-medium text-muted-foreground` | small, semibold, muted, uppercase with slight letter-spacing |
+| Field label | `text-xs text-muted-foreground` | one step below body, muted foreground |
+| Field value | `text-sm` | body size, full-contrast foreground |
+| Section padding | `p-4` | one padding step (~16px) on every panel |
+| Element gap | `gap-2` | one vertical rhythm step (~12–16px) between stacked elements |
+| Borders | `border border-border` | 1px solid border token; a lower-opacity variant for row dividers |
+
+Two sizes of the same thing is a bug: if a screen needs a size not in this table, extend the table rather than hardcoding a value.
 
 ## Forms
 
-- Labels sit above inputs and remain associated with them.
-- Pair short related fields in a two-column grid; keep long or free-text fields single-column.
-- Show conditional fields after the choice that makes them relevant.
-- Keep primary and cancel actions in the same position and order across forms.
-- Show field errors beside the offending field; reserve banners for submission failures.
-- Preserve entered data after failed submission.
+- **Labels above inputs**, never beside. Left-aligned labels break at narrow widths and force a second layout.
+- **Pair related fields in a two-column grid** (first/last name, start/end date) so the form reads as groups; keep single-column for anything long or free-text.
+- **Progressive disclosure driven by earlier answers** — fields that only apply to a chosen type appear after that choice. Do not render disabled fields that may never apply; disabled controls read as broken.
+- **Button placement is consistent across every form in the app**: primary submit and its cancel neighbour in the same position and order everywhere. Pick one and never vary it per screen.
+- **Errors are inline, adjacent to the offending field**, in the small destructive-text style, and the field itself gains an error border. A form-level banner is for submission failures only, not field validation.
+- Preserve entered data on failed submission. Re-typing a form because the server rejected one field is the fastest way to lose a user.
 
 ## Consistency check
 
-1. Match Nexalog's existing screens and the `app/globals.css` token set.
-2. Keep chrome, palette, density, text, hover, and motion consistent.
-3. Keep the primary content in the primary pane on detail screens.
-4. Verify loading, empty, error, keyboard, and focus states.
-5. Reuse primitives before adding components or variants.
-6. Use one icon library at the standard size.
-7. Use the typography, spacing, and border scale above.
+Run this against any new or changed screen before calling it done:
+
+1. Does it match the app's existing screens and the `app/globals.css` token set, or did it drift toward a different product's look?
+2. Every visual-style axis above matches the rest of the app (chrome, palette, density, text size, hover).
+3. It follows its page archetype's layout — and on a detail page, the primary pane holds real content, not metadata.
+4. Loading, empty, and error states all exist and were actually viewed, not assumed.
+5. No new primitive that an existing one could have covered; no primitive overridden from a call site.
+6. All icons from one library at the standard size.
+7. Every size, spacing, and border value comes from the scale table — no ad-hoc values.
+8. Forms: labels above, consistent button placement, inline field errors, input preserved on failure.
+9. Keyboard and focus behavior verified per `frontend.md` — the design is not done if it is mouse-only.
