@@ -16,12 +16,12 @@ import type { AuthenticationResponseJSON } from "@simplewebauthn/server"
 import { PasskeyStore } from "@/lib/passkey/store"
 import { ChallengeStore } from "@/lib/passkey/challenge-store"
 import { recognizeCredential } from "@/lib/identity/recognition"
+import { passkeyOrigins } from "@/lib/hosts/config"
 
 const RP_ID = process.env.NEXT_PUBLIC_RP_ID ?? "localhost"
-const ORIGIN =
-  process.env.BETTER_AUTH_URL ??
-  process.env.NEXT_PUBLIC_APP_URL ??
-  "http://localhost:3000"
+// NEXALOG-HOSTSPLIT — see the register-verify route: accept every configured
+// origin so a passkey login taken on the front host still verifies.
+const ORIGIN = passkeyOrigins()
 
 export async function POST(req: Request) {
   try {

@@ -14,13 +14,15 @@ import { PasskeyStore } from "@/lib/passkey/store"
 import { ChallengeStore } from "@/lib/passkey/challenge-store"
 import { RecoveryCodes } from "@/lib/identity/recovery-codes"
 import { auth } from "@/lib/auth"
+import { passkeyOrigins } from "@/lib/hosts/config"
 import { headers } from "next/headers"
 
 const RP_ID = process.env.NEXT_PUBLIC_RP_ID ?? "localhost"
-const ORIGIN =
-  process.env.BETTER_AUTH_URL ??
-  process.env.NEXT_PUBLIC_APP_URL ??
-  "http://localhost:3000"
+// NEXALOG-HOSTSPLIT — the ceremony may have occurred on EITHER host once the
+// front-end split is configured (the RP ID is the registrable domain, which
+// already covers both), so verification accepts every configured origin.
+// Single-host deployments get the same one-element list this route had before.
+const ORIGIN = passkeyOrigins()
 
 export async function POST(req: Request) {
   try {

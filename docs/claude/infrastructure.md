@@ -8,7 +8,13 @@ than no docs, because they are trusted.
 
 - **Local** — `pnpm dev` on port 3300, pointed at the shared Postgres via `DATABASE_URL` in `.env`
   (tracked example: `.env.example`; the real file is gitignored).
-- **Production** — nexalog.com, served by the container described below. This is real user traffic.
+- **Production** — nexalog.com and app.nexalog.com, BOTH served by the same container described
+  below (one deployment, one Cloudflare tunnel — the two hostnames are not two apps). Since the
+  front-end host split, `nexalog.com` is the FRONT host (the marketing landing page and the login
+  page) and `app.nexalog.com` is the APP host (everything under `/app/*`); the rules live in
+  `apps/web/lib/hosts/split.ts` and the redirects in `apps/web/middleware.ts`. **The split is off
+  unless `NEXALOG_FRONTEND_URL` is set** — with it unset, both hostnames behave exactly as they did
+  before the split. This is real user traffic.
   A local dev server pointed at the shared database **is** talking to production data: the `nexalog`
   schema has no separate staging copy, so treat every query you run locally as a production query.
 - **Forbidden against prod, in every harness:** `pnpm db:push` (`drizzle-kit push`), any

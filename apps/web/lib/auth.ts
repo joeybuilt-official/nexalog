@@ -2,6 +2,7 @@
 import { betterAuth } from "better-auth";
 import { admin, bearer } from "better-auth/plugins";
 import { Pool } from "pg";
+import { hostConfig as hostConfigFromEnv, trustedOriginsFromEnv } from "@/lib/hosts/config";
 
 const pool = new Pool({
   connectionString:
@@ -15,6 +16,8 @@ const pool = new Pool({
 
 const googleClientId = process.env.NEXALOG_GOOGLE_CLIENT_ID;
 const googleClientSecret = process.env.NEXALOG_GOOGLE_CLIENT_SECRET;
+
+const hostConfig = hostConfigFromEnv();
 
 export const auth = betterAuth({
   database: pool,
@@ -38,10 +41,21 @@ export const auth = betterAuth({
         },
       }
     : {}),
-  trustedOrigins: [
-    process.env.BETTER_AUTH_URL,
-    process.env.TRUSTED_ORIGIN,
-  ].filter((url): url is string => !!url),
+  // NEXALOG-HOSTSPLIT. `trustedOriginsFromEnv` FLATTENS a comma/whitespace
+  // separated `TRUSTED_ORIGIN` into separate origins and adds the front-end
+  // host. Before this, a value like "https://a,https://b" landed as ONE
+  // malformed entry that matched no Origin header, so every auth request from
+  // the second host was refused with INVALID_ORIGIN. Additive: with nothing but
+  // `BETTER_AUTH_URL` set, the list is the same single origin it is today.
+  trustedOrigins: trustedOriginsFromEnv(),
+  // The session cookie must be readable on BOTH hostnames or a login taken on
+  // the front host authenticates the reader and then bounces them back to a
+  // logged-out app. `""` (no derivable shared parent, or no split configured)
+  // keeps the cookie host-only — exactly today's behaviour.
+  ...(hostConfig.cookieShared ? { advanced: { crossSubDomainCookies: {
+    enabled: true,
+    domain: hostConfig.cookieDomain,
+  } } } : {}),
   secret: process.env.AUTH_SECRET,
   baseURL: process.env.BETTER_AUTH_URL,
 });
