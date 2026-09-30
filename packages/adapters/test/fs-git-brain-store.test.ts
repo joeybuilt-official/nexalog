@@ -96,3 +96,71 @@ describe("FsGitBrainStore", () => {
     expect(status.stdout.trim()).toBe("");
   });
 });
+
+/**
+ * The lock must distinguish "another writer holds it" from "this process cannot
+ * write here at all".
+ *
+ * The bug these pin: `withLock` caught EVERY error from `open(lockfile, "wx")`
+ * and treated it as contention, so a permission fault became a 10-second spin
+ * followed by "Timed out waiting for brain-repo write lock" — a message naming
+ * contention for a repo where the lockfile did not exist and nothing else was
+ * writing. That masking hid a real outage for days: the brain repo was owned by
+ * a different uid than the app ran as, every capture failed, and the error text
+ * sent the reader hunting a lock holder that was never there.
+ *
+ * A lock timeout is the RIGHT behaviour only for EEXIST. Everything else has to
+ * surface immediately, with the errno intact, so the operator sees the actual
+ * cause.
+ */
+describe("FsGitBrainStore lock failure semantics", () => {
+  it("reports a permissions fault instead of spinning to a lock timeout", async () => {
+    // A directory where the lockfile's parent cannot be created: a FILE stands
+    // in the way, so mkdir fails with ENOTDIR/EEXIST rather than EEXIST-on-open.
+    // Either way it is NOT contention and must not become a 10s timeout.
+    const blocked = path.join(repo, "blocked-repo");
+    await fs.writeFile(blocked, "not a directory", "utf8");
+    const lockedStore = new FsGitBrainStore({
+      repoPath: blocked,
+      lockfilePath: path.join(blocked, ".nexalog", "write.lock"),
+    });
+
+    const started = Date.now();
+    await expect(lockedStore.saveCapture(capture())).rejects.toThrow(/write lock/i);
+    const elapsed = Date.now() - started;
+
+    // The decisive assertion: it failed FAST. The old code burned the full
+    // 10,000ms deadline before reporting a (wrong) timeout.
+    expect(elapsed).toBeLessThan(2_000);
+  });
+
+  it("names the cause and the path, not just 'timed out'", async () => {
+    const blocked = path.join(repo, "blocked-repo-2");
+    await fs.writeFile(blocked, "not a directory", "utf8");
+    const lockedStore = new FsGitBrainStore({
+      repoPath: blocked,
+      lockfilePath: path.join(blocked, ".nexalog", "write.lock"),
+    });
+
+    // The message must carry the diagnosis: an errno code and the lock path.
+    await expect(lockedStore.saveCapture(capture())).rejects.toThrow(
+      /Cannot acquire the brain-repo write lock at .*write\.lock: [A-Z]+/,
+    );
+  });
+
+  it("still reports a genuine holder as a lock timeout", async () => {
+    // Pre-create the lockfile: now `wx` fails EEXIST, which IS the retryable
+    // case. This must keep spinning to the timeout — the fix narrows the retry
+    // set, it does not remove it.
+    const held = path.join(repo, ".nexalog", "write.lock");
+    await fs.mkdir(path.dirname(held), { recursive: true });
+    await fs.writeFile(held, "999999\n", "utf8");
+    try {
+      await expect(store.saveCapture(capture({ title: "held" }))).rejects.toThrow(
+        /Timed out waiting for brain-repo write lock/,
+      );
+    } finally {
+      await fs.unlink(held).catch(() => undefined);
+    }
+  }, 20_000);
+});
