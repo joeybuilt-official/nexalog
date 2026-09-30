@@ -48,14 +48,19 @@ export function assertTransition(from: LifecycleState, to: LifecycleState): void
 //   R2 two levels   — a sub-project may not itself be a parent, and a parent
 //                     must itself be a root.
 //
-// Cycle safety falls out of R1 + R2 rather than needing its own walk: every
-// shape a cycle would require (a child that already has a parent, or a parent
-// that is itself someone's child) is exactly what those rules reject.
+// Cycle safety falls out of R1 + R2 for an ADD rather than needing its own walk:
+// every shape a cycle would require (a child that already has a parent, or a
+// parent that is itself someone's child) is exactly what those rules reject.
+// **A MOVE is the different question, and it does need the walk**: when a
+// project that is already a child is moved under a different parent, R1 is
+// precisely what the operation changes, so it cannot also be the guard. See
+// `assertReparentable` below.
 //
 // Depth is a property of THIS guard, not of a column — there is no `parent_id`,
 // no depth column and no CHECK constraint (A1.3: raising the limit stays a
 // policy change plus a test, not a migration on populated rows). Every write
-// path that can nest a project must call `assertNestable`.
+// path that can nest a project must call `assertNestable` or
+// `assertReparentable`.
 export const MAX_PROJECT_DEPTH = 2;
 
 export const NESTING_VIOLATION_CODES = [
@@ -63,6 +68,7 @@ export const NESTING_VIOLATION_CODES = [
   "already_has_parent",
   "child_is_parent",
   "parent_is_child",
+  "cycle",
 ] as const;
 export type NestingViolationCode = (typeof NESTING_VIOLATION_CODES)[number];
 
@@ -130,6 +136,180 @@ export function canNestSubProject(input: NestingCheck): boolean {
 export function assertNestable(input: NestingCheck): void {
   const violation = nestingViolation(input);
   if (violation) throw new ProjectNestingError(violation);
+}
+
+// ---- Re-parenting (move / promote) ---------------------------------------
+// The ADD guard above answers "may this root become a child of this root". A
+// MOVE answers a different question — "may this project, whatever it currently
+// is, hang off that one instead" — and the two do not share a rule set: the
+// child is usually ALREADY someone's child (that is what a move is), so R1 is
+// the thing being rewritten rather than a bar. What a move must never do is
+// create a cycle, and that is the one check R1+R2 cannot express.
+//
+// The guard is still PURE: the caller reads the ancestry and passes it in, so
+// the whole decision is testable with plain values and there is exactly one
+// place the rule lives (every entrypoint — route, job, CLI — gets the same
+// answer because the rule is not in the route).
+
+export type ReparentDirection = "nest" | "promote";
+
+export type ReparentCheck = {
+  /**
+   * The project being moved. `null` when the project is not yet created — the
+   * create-a-sub-project path, where the child cannot possibly be its own
+   * ancestor and only the parent's own shape can be wrong.
+   */
+  projectId: string | null;
+  /** The prospective parent; `null` promotes the project to a root. */
+  parentId: string | null;
+  /**
+   * The ancestry of the PROSPECTIVE PARENT, nearest ancestor first
+   * (`[itsParent, itsGrandparent, …]`). The store walks this from the edge
+   * table — the same `project_items` relation every other read uses, never a
+   * second mechanism. Empty means the parent is a root. Not read for a promote.
+   */
+  parentAncestors: readonly string[];
+  /**
+   * How many sub-projects the project has. Only a move of an EXISTING project
+   * cares: moving a parent under another project would make the tree three
+   * levels deep, which R2 forbids. A project being created has none, by
+   * definition.
+   */
+  projectSubProjectCount: number;
+};
+
+export type ReparentPlan = {
+  direction: ReparentDirection;
+  /** The parent the project is moving to (`null` promotes). */
+  parentId: string | null;
+};
+
+/**
+ * Pure. Returns `null` when the move is allowed, else the violation — the same
+ * coded shape `nestingViolation` returns, so clients branch on one vocabulary.
+ *
+ * Order matters and is deliberate:
+ *
+ *   1. `self_nesting`   — a project can never be its own parent;
+ *   2. `cycle`          — `projectId` must not appear anywhere in the ancestry
+ *                         it is about to join. This is the check that makes a
+ *                         move safe, and it subsumes the direct-child case: a
+ *                         direct child's ancestry begins with its parent, which
+ *                         is the project;
+ *   3. `parent_is_child`— the prospective parent must itself be a root, or the
+ *                         tree would be three levels deep (R2). This is what
+ *                         `nestingViolation` calls `parent_is_child`;
+ *   4. `child_is_parent`— the project must not have sub-projects of its own, the
+ *                         other half of R2.
+ *
+ * Nothing here consults the project's CURRENT parent, and that is the point: the
+ * parent a project has today is the edge a move replaces.
+ */
+export function reparentViolation(input: ReparentCheck): NestingViolation | null {
+  if (input.parentId === null) return null;
+
+  if (input.projectId !== null && input.parentId === input.projectId) {
+    return { code: "self_nesting", message: "A project cannot be nested under itself." };
+  }
+
+  if (input.projectId !== null && input.parentAncestors.includes(input.projectId)) {
+    return {
+      code: "cycle",
+      message:
+        "That would nest a project inside its own sub-tree. A project can never become its own ancestor.",
+    };
+  }
+
+  if (input.parentAncestors.length > 0) {
+    return {
+      code: "parent_is_child",
+      message: `That project is itself a sub-project — projects nest ${MAX_PROJECT_DEPTH} levels deep.`,
+    };
+  }
+
+  if (input.projectSubProjectCount > 0) {
+    return {
+      code: "child_is_parent",
+      message: `This project has sub-projects of its own, so it cannot become a sub-project — projects nest ${MAX_PROJECT_DEPTH} levels deep.`,
+    };
+  }
+
+  return null;
+}
+
+export function canReparent(input: ReparentCheck): boolean {
+  return reparentViolation(input) === null;
+}
+
+/**
+ * The verb a `parentId` expresses, derived once — a uuid is a MOVE ("nest"),
+ * `null` is a PROMOTE. Exported so the store's no-op branch and the guard's
+ * return cannot disagree about which word describes the same request.
+ */
+export function reparentDirection(parentId: string | null): ReparentDirection {
+  return parentId === null ? "promote" : "nest";
+}
+
+/**
+ * Write-path guard for a move (and for the create-a-sub-project path, with
+ * `projectId: null`). Throws `ProjectNestingError` (coded) on a violation,
+ * exactly as `assertNestable` does — the route maps the code to a 400 and
+ * nothing is written.
+ */
+export function assertReparentable(input: ReparentCheck): ReparentPlan {
+  const violation = reparentViolation(input);
+  if (violation) throw new ProjectNestingError(violation);
+  return { direction: reparentDirection(input.parentId), parentId: input.parentId };
+}
+
+// ---- Who may be a parent (the picker's rule) ------------------------------
+// The UI needs the same rule the guard enforces, or it offers an action the
+// server will refuse — and a control that 400s on the obvious choice reads as a
+// bug. It lives here, pure, so the picker and the guard cannot disagree and the
+// rule is testable without rendering anything.
+
+export type ParentCandidate = {
+  id: string;
+  name: string;
+  /** `null` when the project is a root. */
+  parentId: string | null;
+};
+
+/**
+ * The projects that may legally be the parent of `projectId` — or of a project
+ * that does not exist yet, when `projectId` is `null` (the create-a-sub-project
+ * picker).
+ *
+ * A candidate must be a ROOT: a project that is itself a sub-project cannot take
+ * a child without making the tree three levels deep (R2). That single test is
+ * also what makes a cycle impossible from this picker — a cycle needs the
+ * project to be inside its own prospective ancestor chain, and a root has no
+ * ancestors at all.
+ *
+ * The project is never its own candidate, and neither is its own current parent
+ * excluded — the picker shows the current parent (so the control reads honestly)
+ * and a move to the same parent is a reported no-op rather than an error, which
+ * the store decides, not this function.
+ */
+export function parentCandidates<T extends ParentCandidate>(
+  projects: readonly T[],
+  projectId: string | null,
+): T[] {
+  return projects.filter(
+    (project) => project.parentId === null && project.id !== projectId,
+  );
+}
+
+/**
+ * Whether a project can be nested under another AT ALL — the one condition that
+ * is a property of the project itself rather than of the prospective parent.
+ *
+ * A project with sub-projects of its own is a root by construction and cannot
+ * become a child (R2, the `child_is_parent` arm of the guard), so a UI that
+ * offers it a move is offering a guaranteed 400.
+ */
+export function canBecomeSubProject(project: { subProjectCount: number }): boolean {
+  return project.subProjectCount === 0;
 }
 
 // ---- Presentation-agnostic grouping --------------------------------------

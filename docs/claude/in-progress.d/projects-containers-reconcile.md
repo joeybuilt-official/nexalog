@@ -164,3 +164,52 @@ page touched. Phase 5 stays gated. The Projects routes and the `projects` table 
 the gate for this area. The browse layer adds no new gate of its own.
 
 **Fragment status:** still `open` — the queue row is not finished until Phase 5 lands.
+
+---
+
+## 2026-09-30 — the hierarchy becomes manageable: create a sub-project directly, and MOVE one
+
+The operator's ask was for Nexalog to be the system of record for the project tree. Rename, delete
+and flat create already lived in the UI; what did not exist was any way to RE-SHAPE the hierarchy —
+a sub-project could only be made by creating a root and then nesting it, and once nested it could
+neither move nor be lifted back out.
+
+**Nothing new was invented for the storage.** A sub-project is still a `project_items` row with
+`item_kind='project'` pointing at the CHILD project — the reference-based container ADR-0018
+§D1/§D2 put in place — so there is no `parent_id` column, no self-FK, no migration, and the
+`projects` table was not touched. The ancestry walk reads that same edge through the existing
+`getProjectParentId`, so there is exactly one nesting mechanism.
+
+**The load-bearing finding: the add-path guard could not police a move, and pretending otherwise
+would have shipped a cycle hole.** `nestingViolation` refuses a child that "already has a parent"
+(R1) — but a move's child is normally ALREADY someone's child, so R1 is the edge being rewritten
+rather than a bar. The old fragment's claim that "cycle prevention falls out of the two rules"
+is true of an ADD and false of a MOVE, and A1.2's ancestor walk is the piece that was deferred and
+now has to exist. It is `reparentViolation` / `assertReparentable` in `lib/projects/domain`,
+beside the add-path guard, over a new `ReparentCheck` value object; the cycle test is a single
+identity check — the project may not appear anywhere in the ancestry it is about to join — which
+covers the direct-child case and any deeper chain. `projectId: null` is the create path (a project
+that does not exist cannot be its own ancestor), so ONE guard serves both verbs. `cycle` joins
+`NESTING_VIOLATION_CODES` so clients branch on one enum for add, move and create.
+
+**Where the writes are, and why they are ordered the way they are.** `createProject` validates the
+parent before inserting anything, then writes the project row and then the edge (the edge needs the
+child's id, so it is the one step that has to follow — a refused create therefore leaves nothing).
+`reparentProject` reports an identical parent as a no-op, and otherwise replaces the edge as
+DELETE-then-INSERT inside ONE `db.transaction`, because a half-applied move leaves a project
+parentless or, on a retry, with two parents. The ancestry walk is `seen`-guarded and bounded rather
+than trusting the tree to be acyclic: it runs inside a cycle REFUSAL, so it must terminate on the
+malformed data it exists to catch.
+
+**The UI cannot offer what the server will refuse.** Both new controls narrow their options with the
+domain's `parentCandidates` (roots only, never the project itself) and a control that would 400 on
+the obvious choice is replaced by an explanation of why.
+
+**Out of scope, unchanged:** no schema change, no migration, no `db:push`, no data touched, no
+deploy, and no change to `browse.ts` — the A1.7 invariant is preserved by construction, since the
+guard refuses the third level and a move can only produce a shape the two-level tree already
+handled. Phase 5 stays gated.
+
+**Next step:** unchanged — Phase 5 (operator-gated push target + deploy + prod migration) is still
+the gate for this area. Creating a sub-project and moving/promoting one are now real against the
+tables that already exist in prod; nothing here needs DDL.

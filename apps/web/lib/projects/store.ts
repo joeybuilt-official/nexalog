@@ -15,11 +15,23 @@ import { db, schema } from "@/lib/db";
 import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import {
   assertNestable,
+  assertReparentable,
   assertTransition,
+  reparentDirection,
+  MAX_PROJECT_DEPTH,
   type ItemKind,
   type LifecycleState,
   type ProjectContextDigest,
+  type ReparentPlan,
 } from "@/lib/projects/domain";
+
+/**
+ * Hard bound on the ancestry walk below. The walk exists to REFUSE a cycle, so
+ * it must terminate on malformed data rather than trust the tree to be acyclic
+ * — `MAX_PROJECT_DEPTH * this` steps is far more than any legal chain and still
+ * finite. When depth is ever raised, both factors move together.
+ */
+const ANCESTRY_WALK_LIMIT = 8;
 
 export type UnitRef = { kind: ItemKind; id: string };
 export type GroupedUnit = {
@@ -443,12 +455,102 @@ export async function listGroupableCandidates(
 
 // ---- writes ---------------------------------------------------------------
 
+/**
+ * Resolve an optional parent for a project about to be created or moved, and
+ * return the ancestry the pure guard needs.
+ *
+ * One helper, used by BOTH write paths, because the rules are the same and the
+ * answer must not depend on which route the caller came through:
+ *
+ *   - the parent must be one of `workspaceIds` and not soft-deleted — a parent
+ *     the caller cannot see is reported as `parent_not_found`, never as
+ *     "forbidden", for the same reason `addItemToProject` reports a foreign
+ *     target that way: 403 would confirm the id exists somewhere;
+ *   - the whole ancestry of that parent is then read and handed to the pure
+ *     guard, which owns the actual rule.
+ *
+ * `null` means "the parent is not the caller's" and is the only failure this
+ * reports — an EMPTY array is a legitimate answer (the parent is a root), which
+ * is why the two are distinct and a truthiness check on the array alone would
+ * conflate them.
+ *
+ * The ancestry walk is the SAME `project_items` chain every other sub-project
+ * read uses — there is no second nesting mechanism and no `parent_id` column
+ * (ADR-0018 §D1/§D2).
+ */
+async function resolveParentAncestorsForWrite(
+  workspaceIds: string[],
+  parentId: string,
+): Promise<string[] | null> {
+  const parent = await getProjectRow(workspaceIds, parentId);
+  if (!parent) return null;
+  return getAncestorIds(parent.id);
+}
+
+/**
+ * The ancestry of `projectId`, nearest ancestor first — its parent, then that
+ * project's parent, and so on until a project with no parent (a root).
+ *
+ * Bounded by `MAX_PROJECT_DEPTH * ANCESTRY_WALK_LIMIT` rather than trusting the
+ * data to be acyclic: this walk runs inside a cycle REFUSAL path, so it has to
+ * terminate on the malformed tree it is there to prevent, not spin on it. A
+ * pre-existing cycle (which the UI can no longer author, but a hand-applied SQL
+ * edit or an older client could have left) therefore still terminates, and the
+ * caller's guard sees the repeated id and refuses.
+ */
+async function getAncestorIds(projectId: string): Promise<string[]> {
+  const ancestors: string[] = [];
+  const seen = new Set<string>([projectId]);
+  let current = projectId;
+
+  for (let depth = 0; depth < MAX_PROJECT_DEPTH * ANCESTRY_WALK_LIMIT; depth += 1) {
+    const parentId = await getProjectParentId(current);
+    if (!parentId || seen.has(parentId)) break;
+    ancestors.push(parentId);
+    seen.add(parentId);
+    current = parentId;
+  }
+
+  return ancestors;
+}
+
 export async function createProject(input: {
   workspaceId: string;
   userId: string;
   name: string;
   description?: string | null;
-}): Promise<ProjectSummary> {
+  /**
+   * Optional parent: creates the project AS A SUB-PROJECT in one call. Without
+   * it the project is a root, which is every existing caller's behaviour — the
+   * field is additive and an absent key means root.
+   *
+   * `null` and an absent key are the same thing here (a root); the route
+   * distinguishes them only to reject an explicitly unknown parent.
+   *
+   * The guard runs BEFORE the project row is inserted, so a refused parent
+   * leaves nothing behind; the parent edge is then written as a `project_items`
+   * row (kind 'project') once the child's id exists. Ordered that way round
+   * because the edge needs the child id — the only step that has to come after
+   * the insert is the one that cannot come before it.
+   */
+  parentId?: string | null;
+}): Promise<ProjectSummary | null> {
+  const parentId = input.parentId ?? null;
+
+  if (parentId) {
+    const parentAncestors = await resolveParentAncestorsForWrite([input.workspaceId], parentId);
+    if (parentAncestors === null) return null;
+
+    // `projectId: null` — a project that does not exist yet cannot be its own
+    // ancestor, so only the parent's own shape and the two-level rule can fire.
+    assertReparentable({
+      projectId: null,
+      parentId,
+      parentAncestors,
+      projectSubProjectCount: 0,
+    });
+  }
+
   const [row] = await db
     .insert(schema.projects)
     .values({
@@ -460,6 +562,13 @@ export async function createProject(input: {
     })
     .returning();
 
+  if (parentId) {
+    await db
+      .insert(schema.projectItems)
+      .values({ projectId: parentId, itemKind: "project", itemId: row.id })
+      .onConflictDoNothing();
+  }
+
   return {
     id: row.id,
     workspaceId: row.workspaceId,
@@ -470,11 +579,80 @@ export async function createProject(input: {
     livingDocUpdatedAt: row.livingDocUpdatedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    parentId: null,
+    parentId,
     itemCount: 0,
     subProjectCount: 0,
   };
 }
+
+/**
+ * Re-parent a project — the manage verb that was missing: move it under a
+ * different parent, or `parentId: null` to promote it to a root.
+ *
+ * The edge is replaced, not added: the existing `project_items` row naming this
+ * project as the child is deleted, then the new one inserted. Both statements
+ * run in ONE transaction, because the two halves are one fact — a crash between
+ * them would leave a project with no parent at all (recoverable, but the point
+ * is not to need recovery) or, worse on a retry against a partially written
+ * state, two parents, which R1 exists to prevent.
+ *
+ * A refusal is never silently swallowed: an illegal move throws the guard's coded
+ * `ProjectNestingError`, an unknown parent is the `parent_not_found` outcome and a
+ * project that is not the caller's is `project_not_found` — three distinct
+ * answers, none of them a bare 500 and none of them a no-op.
+ */
+export async function reparentProject(
+  workspaceIds: string[],
+  projectId: string,
+  parentId: string | null,
+): Promise<ReparentOutcome> {
+  const project = await getProjectRow(workspaceIds, projectId);
+  if (!project) return { ok: false, reason: "project_not_found" };
+
+  const [currentParentId, subProjectCount] = await Promise.all([
+    getProjectParentId(projectId),
+    countSubProjects(projectId),
+  ]);
+
+  // A move to the parent this project already has changes nothing. Reported as
+  // a successful no-op (the caller asked for a state the project is already in)
+  // rather than an error, and it never reaches the database: re-writing the same
+  // edge would delete and re-insert a row for no change.
+  if (parentId === currentParentId) {
+    return { ok: true, changed: false, plan: { direction: reparentDirection(parentId), parentId } };
+  }
+
+  if (parentId !== null) {
+    const parentAncestors = await resolveParentAncestorsForWrite(workspaceIds, parentId);
+    if (parentAncestors === null) return { ok: false, reason: "parent_not_found" };
+
+    assertReparentable({
+      projectId,
+      parentId,
+      parentAncestors,
+      projectSubProjectCount: subProjectCount,
+    });
+  }
+
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(schema.projectItems)
+      .where(and(eq(schema.projectItems.itemKind, "project"), eq(schema.projectItems.itemId, projectId)));
+
+    if (parentId) {
+      await tx
+        .insert(schema.projectItems)
+        .values({ projectId: parentId, itemKind: "project", itemId: projectId })
+        .onConflictDoNothing();
+    }
+  });
+
+  return { ok: true, changed: true, plan: { direction: reparentDirection(parentId), parentId } };
+}
+
+export type ReparentOutcome =
+  | { ok: true; changed: boolean; plan: ReparentPlan }
+  | { ok: false; reason: "project_not_found" | "parent_not_found" };
 
 /**
  * Update name / description / living document / lifecycle. Only the fields

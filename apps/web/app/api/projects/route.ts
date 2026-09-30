@@ -4,7 +4,7 @@
  *
  * `GET`  list the caller's projects (workspace-scoped), each with the member and
  *        sub-project counts the list view renders.
- * `POST` create a project.
+ * `POST` create a project, optionally as a sub-project of an existing one.
  *
  * Workspace scoping is the whole authorization model here: every read and write
  * goes through a `workspaceIds` list resolved from the session, so a project id
@@ -16,14 +16,23 @@ import { getAuthUser } from "@/lib/auth/server";
 import { surfaceUnavailableIfMissingRelation } from "@/lib/db/surface-unavailable";
 import { getUserWorkspaces } from "@/lib/workspace";
 import { createProject, listProjects } from "@/lib/projects/store";
+import { ProjectNestingError } from "@/lib/projects/domain";
 import { z } from "zod";
 
-/** `strict()` so a misspelled field is a 400, not a silently ignored intent. */
+/**
+ * `strict()` so a misspelled field is a 400, not a silently ignored intent.
+ *
+ * `parentId` is `nullish` rather than optional-with-a-default because the two
+ * absences mean the same thing here (a root) and collapsing them at the schema
+ * would make "explicitly no parent" and "field omitted" indistinguishable in the
+ * handler, where the caller may eventually want to tell them apart.
+ */
 const createBody = z
   .object({
     name: z.string().trim().min(1, "name is required").max(200),
     description: z.string().max(4000).nullish(),
     workspaceId: z.string().uuid().optional(),
+    parentId: z.string().uuid().nullish(),
   })
   .strict();
 
@@ -76,12 +85,35 @@ export async function POST(request: Request) {
       return Response.json({ error: "Workspace not found" }, { status: 404 });
     }
 
-    const project = await createProject({
-      workspaceId: target ?? workspaces[0].id,
-      userId: user.id,
-      name: parsed.data.name,
-      description: parsed.data.description ?? null,
-    });
+    const workspaceId = target ?? workspaces[0].id;
+
+    let project;
+    try {
+      project = await createProject({
+        workspaceId,
+        userId: user.id,
+        name: parsed.data.name,
+        description: parsed.data.description ?? null,
+        parentId: parsed.data.parentId ?? null,
+      });
+    } catch (e) {
+      // The nesting guard's refusal, mapped where every other domain failure is
+      // mapped (the adapter layer). `code` is the contract the client branches
+      // on; the message is for the human reading the screen.
+      if (e instanceof ProjectNestingError) {
+        return Response.json(
+          { error: "invalid_nesting", code: e.code, message: e.message },
+          { status: 400 },
+        );
+      }
+      throw e;
+    }
+
+    // `null` means the parentId named a project the caller does not own (the
+    // parent is resolved against the caller's workspaces inside the store, like
+    // every other read). 404, not 403 — see `addItemToProject` for the same
+    // reasoning: a 403 would confirm the id exists somewhere.
+    if (!project) return Response.json({ error: "parent_not_found" }, { status: 404 });
 
     return Response.json({ project }, { status: 201 });
   } catch (err) {

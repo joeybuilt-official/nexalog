@@ -13,10 +13,16 @@ import { notFound, redirect } from "next/navigation";
 import { getAuthUser } from "@/lib/auth/server";
 import { getUserWorkspaces } from "@/lib/workspace";
 import { getProject, listGroupableCandidates, type GroupedUnit } from "@/lib/projects/store";
-import { groupUnitsByKind, MAX_PROJECT_DEPTH, type ItemKind } from "@/lib/projects/domain";
+import {
+  groupUnitsByKind,
+  parentCandidates,
+  MAX_PROJECT_DEPTH,
+  type ItemKind,
+} from "@/lib/projects/domain";
 import { Badge } from "@/components/ui/badge";
 import { ChevronRight, FolderKanban, Notebook, Bookmark, FileText } from "lucide-react";
 import { ProjectControls } from "./project-controls";
+import { ReparentControl } from "./reparent-control";
 import { AddItemForm } from "./add-item-form";
 import { RemoveItemButton } from "./remove-item-button";
 
@@ -85,9 +91,9 @@ export default async function ProjectDetailPage({
   // and one that has sub-projects cannot become a sub-project. Say both out loud
   // where they fire, instead of offering an action that will 400.
   const canBeParent = !project.parentId;
-  const nestableProjects = candidates.projects.filter(
-    (c) => c.id !== project.id && !c.parentId,
-  );
+  // The domain's own picker rule, shared with the re-parent control and the
+  // server-side guard, so the three cannot drift apart.
+  const nestableProjects = parentCandidates(candidates.projects, project.id);
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -128,6 +134,16 @@ export default async function ProjectDetailPage({
         description={project.description}
         lifecycleState={project.lifecycleState}
         livingDoc={project.livingDoc}
+      />
+
+      {/* Where this project sits in the tree — the move/promote verb. Renaming,
+          describing, the living doc and deleting already live in the controls
+          above; this is the one hierarchy action that did not exist. */}
+      <ReparentControl
+        projectId={project.id}
+        currentParentId={project.parentId}
+        subProjectCount={project.subProjectCount}
+        projects={candidates.projects}
       />
 
       {/* Sub-projects — projects nest two levels, so a project with a parent
