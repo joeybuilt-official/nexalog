@@ -16,10 +16,13 @@
 #   direct push — `scripts/init-repo-protection.sh` does this once someone with admin auth runs it.
 #   See AGENTS.md → "Enforcement — the honest version".
 #
-# NOT WIRED, deliberately: `scripts/check-expert-review.sh`. It requires a `checklist.md` with pending
-# items under `docs/claude/`; nexalog keeps its checklists at the repo root instead, so the gate can
-# never pass as written. Either move the checklists under `docs/claude/<area>/<slug>/` (where they
-# belong per PANOPLY-OPTIMIZATION.md §1) or leave this step out.
+# NOT WIRED, deliberately: `scripts/check-expert-review.sh`. The script itself is current (re-synced
+# to the kit's fixed body) and would pass on this repo today — a `plan.md` and a `checklist.md` with
+# pending items both exist under `docs/claude/`. It is left out for a different reason: enabling it
+# would silently add a merge requirement for every future PR, which is an operator decision, not one
+# to take in a governance-refresh batch. The earlier note here ("the gate can never pass as written —
+# nexalog keeps its checklists at the repo root") is obsolete; the pre-`docs/claude/` checklists moved
+# into the area folders. Re-enable only on an explicit decision.
 #
 # WIRED 2026-09-25: the architecture-boundary check (`pnpm depcruise`, config `.dependency-cruiser.cjs`).
 # It was the missing gate called out in `.claude/rules/clean-architecture.md` → "Known gaps" — the
@@ -107,7 +110,8 @@ jobs:
       # Architecture boundaries — WIRED 2026-09-25: `.dependency-cruiser.cjs` + `pnpm depcruise`
       # (step above). The old comment "not wired: no .dependency-cruiser.cjs in this repo yet" is done.
 
-      # Expert-review gate — not viable here yet. See the note at the top of this file.
+      # Expert-review gate — NOT wired, deliberately: enabling it adds a merge requirement for every
+      # future PR, which is an operator decision. See the note at the top of this file.
       # - name: Expert review
       #   run: sh scripts/check-expert-review.sh --since "${{ github.event.pull_request.base.sha }}"
       #   if: github.event_name == 'pull_request'

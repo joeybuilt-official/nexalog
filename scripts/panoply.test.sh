@@ -22,6 +22,28 @@ DOC="$KIT/scripts/panoply.sh"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
+# This canary tests the KIT, and it builds its fixtures by copying the kit's own AGENTS.md, rule
+# modules and sync-agents.sh. So it is only meaningful when $KIT really is the template. Deriving
+# $KIT from $0 means running `sh scripts/panoply.test.sh` from ANY adopter silently makes that
+# adopter the "kit" — its modules are already adapted (token-free), so `apply` seeds a repo with no
+# placeholders, case 10's "post-apply is unadapted (13)" can never hold, the repo reports drift (14)
+# instead, and the canary prints a FAIL that has nothing to do with the doctor. That is a false red
+# in the one gate an adopter is told to run, which is worse than no gate: it trains people to ignore
+# a failure. Detect the situation and SKIP loudly instead — a soft gate may skip, but never silently.
+# PANOPLY_KIT_ROOT may point at a real template checkout to run it from elsewhere.
+_is_template() {  # _is_template <dir> — same heuristic the doctor uses for self-detection
+  [ -f "$1/scripts/init-template-repo.sh" ] && [ -f "$1/.claude/commands/adapt-claude-setup.md" ]
+}
+if [ -n "${PANOPLY_KIT_ROOT:-}" ] && _is_template "$PANOPLY_KIT_ROOT"; then
+  KIT="$PANOPLY_KIT_ROOT"; DOC="$KIT/scripts/panoply.sh"
+elif ! _is_template "$KIT"; then
+  printf 'PANOPLY.TEST: SKIPPED — %s is not a kit template checkout.\n' "$KIT"
+  printf '  This canary asserts the KIT doctor against fixtures built from the kit itself, so it\n'
+  printf '  must run from the kit root (or with PANOPLY_KIT_ROOT=<kit checkout>).\n'
+  printf '  In an ADOPTED repo, verify with:  sh scripts/panoply.sh check  &&  sh scripts/sync-agents.sh --check\n'
+  exit 0
+fi
+
 pass=0; fail=0
 _ok()   { pass=$((pass+1)); printf '  ok   %s\n' "$1"; }
 _bad()  { fail=$((fail+1)); printf '  FAIL %s — %s\n' "$1" "$2"; }

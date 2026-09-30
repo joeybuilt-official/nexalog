@@ -19,91 +19,84 @@ Add an entry when a feature is tested and signed off, at the same time you move 
 
 ---
 
-### Untrack machine-local loop state + build artifacts — 2026-09-25
-- **What shipped:** the repo no longer tracks machine-local state. `TASKS.md`, `PROGRESS.md`,
-  `HANDOFF.md`, `next-session.txt`, `.claude/settings.local.json` and the three root-level
-  `nexalog-bookmarks-*.zip` build artifacts left the index via `git rm --cached` — every file stays on
-  disk, so the Phalanx loop and the local Claude Code session keep working, and their churn no longer
-  shows up in `git status` for the next commit to sweep in by accident. `.gitignore` now covers all of
-  them; `next-session.txt` was the one path missing from it.
-- **Area:** `repo` (tracked-ness hygiene)
-- **Archived plan:** none — the task was a fragment (`in-progress.d/untrack-machine-local-state.md`),
-  retired in the shipping commit.
-- **Notable decisions:** **no history rewrite.** The fragment recommended against a force-push over
-  ~31 KB of artifacts and that stands: the blobs stay reachable in already-published commits, but a
-  force-push is destructive and forces a fleet-wide re-clone for nothing. `--cached`, not a disk
-  delete — machine-local state belongs to the machine, and removing the files would kill the loop
-  running on this box. The six root-level audit/scratch markdown files that opened row 5 were rehomed
-  by `git mv` on 2026-09-20 (`platform/pkm-expansion/audit-2026-06/`, `ui/audit-2026-06/`) and needed
-  no untracking.
-- **Known gaps:** the artifacts still exist in history — `git clone` downloads them regardless of the
-  new ignore rules (only a rewrite or a partial-clone filter changes that). The `AGENTS.md` MUST NOT
-  block and `CLAUDE.md` then still described `TASKS.md` / `PROGRESS.md` / `HANDOFF.md` as "already
-  tracked — a known defect"; that prose is now corrected (the MUST NOT block lives in the `AGENTS.md`
-  MIRROR preamble, so the ~20 tool mirrors were regenerated) in the follow-up that also untracked the
-  last four machine-local paths — see `.gitignore` and the 2026-09-26 worklog line.
+<!-- New entries go directly below this line, newest first. -->
 
-### `.claude/settings.json` permission gate — 2026-09-25
-- **What shipped:** the fleet's last repo without a shared permission gate now has one. A Claude Code
-  session in this repo has the destructive commands mechanically refused before they run — `pnpm
-  db:push`, `drizzle-kit push`, `psql`, publish commands, and the compose-up deploy — with the deny
-  list copied verbatim from the sibling `fylo` gate.
-- **Area:** `repo` (harness enforcement)
-- **Archived plan:** none — the task was a fragment (`in-progress.d/claude-permission-gate.md`),
-  retired in the shipping commit.
-- **Notable decisions:** deny list verbatim from fylo (fleet parity — one list to reason about) with
-  five repo-specific denies appended; the allow list pruned only where this repo's toolchain differs
-  (no Prettier, no Biome, no Jest — ESLint + vitest only). Scope is recorded as **Claude-Code-only**
-  in `AGENTS.md` and `CLAUDE.md`: no other harness reads `.claude/settings.json`, so the MUST NOT list
-  stays prose everywhere else and `verify` remains report-only (queue row 4).
-- **Known gaps:** `.claude/settings.local.json` is still tracked (operator-gated untrack — queue row
-  5); the gate does not cover non-Claude harnesses, and it constrains tool calls rather than the shell.
+### Panoply kit refresh — 2026-09-30
+- **What shipped:** the kit is now genuinely current rather than merely stamped. All 14 surviving
+  `.claude/rules/` modules were reconciled by hand against kit v1.4.0 (merging the kit's body while
+  keeping this repo's layer map, `pnpm depcruise` gate, Plexo notes and shared-Postgres MUST-NOTs),
+  every adapt token was filled from this repo's own `package.json` script table, `sync-agents.sh`
+  was re-synced to the fixed v1.4.0 body, every tool mirror was regenerated, and `.panoply-version`
+  was re-stamped last.
+- **Area:** `governance`
+- **Archived plan:** n/a — adoption batch, no separate plan folder
+- **Notable decisions:** the `MODULE:agent` / agent-readiness module was **pruned**, not adopted —
+  this repo builds no MCP server and serves no `/.well-known/agent-card.json`, and a rule kept "just
+  in case" is a rule nobody follows. `check-expert-review.sh` was re-synced to the kit's corrected
+  body but deliberately **not** wired into CI, because wiring it would silently change the merge
+  requirements for every future PR. `init-repo-protection.sh` was left alone: the repo's live
+  protection (0 required approvals, admins enforced) is a deliberate single-operator setting that the
+  kit's default call would have flipped.
+- **Known gaps:** no `/.well-known/agent-card.json`; no endpoint-test coverage checker (the testing
+  module describes it as target state, not as live CI); the `docs/claude/` spine is seeded with real
+  content but the `in-progress.md` ↔ `in-progress.d/` migration sweep has not run, so both are kept
+  in step by hand for now.
 
-### Architecture-boundary gate — depcruise in CI + pre-commit — 2026-09-25
-- **What shipped:** the import-boundary rule is machine-checked. `.dependency-cruiser.cjs` +
-  `pnpm depcruise` run in `verify` CI and the pre-commit template: `packages/core` importing anything
-  (`core-is-pure`, incl. unresolved bare specifiers), outward-pointing layer edges
-  (`core-no-outer-layers`, `adapters-no-apps`), and `lib/<feature>` importing the UI
-  (`web-lib-no-ui`) are **blocking errors**; `lib/<feature> → lib/db` is a baselined **warn**.
-- **Area:** `repo` (CI + architecture enforcement)
-- **Archived plan:** none — the task was a fragment (`in-progress.d/arch-boundary-gate.md`), retired in
-  the shipping commit.
-- **Notable decisions:** severity ladder copied from fylo (`error` = currently clean and blocks;
-  `warn` = known-existing, advisory until the incremental cleanup ratchets it). `web-lib-no-ui`
-  shipped as a blocking error because the tree is already clean at 0 violations — the audit found
-  **zero** `lib → app/components` imports, so no baseline was needed. The `core-is-pure` rule lists
-  `dependencyTypes: [..., "unknown"]` deliberately: an unresolvable bare specifier (e.g. `import z
-  from "zod"` in a package with no deps) is classified `unknown` by depcruise, and the first draft of
-  the rule let it through. A root-level `tsconfig.depcruise.json` exists because depcruise needs one
-  TS project spanning the monorepo for `@/*` + workspace resolution; without root `typescript`, it
-  silently skipped every `.ts` file (6 modules cruised instead of 273) — `typescript` is now pinned
-  in root `devDependencies`.
-- **Known gaps:** `web-lib-no-direct-db` stays `warn` at 9 call sites (`lib/workspace.ts`,
-  `lib/transcription/index.ts`, `lib/today/cards-data.ts`, `lib/themes/forest.ts`,
-  `lib/projects/store.ts`, `lib/notes/wikilinks.ts`, `lib/export/load.ts`,
-  `lib/enrichment/reader.ts`, `lib/enrichment/metadata.ts`) — ratchet to `error` as each slice's
-  storage moves behind a port (`lib/intelligence/port.ts` is the pattern). The rest of the
-  `clean-architecture.md` checklist (vendor types in slices, DTO boundaries, port + test-double
-  pairing) remains review-only — not mechanically checkable per-diff. Branch protection is still
-  blocked by the GitHub free plan (queue row 4), so `verify` — and this step inside it — reports
-  rather than blocks until the plan changes.
+### Panoply kit adoption (first pass) — 2026-09-30
+- **What shipped:** the doctor (`scripts/panoply.sh`) and its canary, the version stamp, and
+  `scripts/check-plan-home.sh`, wired into the `verify` workflow in the same job as the docs-landing
+  gate. `panoply.sh check` became the machine surface any harness can run before it writes.
+- **Area:** `governance`
+- **Archived plan:** PR #29 — see the worklog
+- **Notable decisions:** the stamp is written last among the mechanical steps, so a half-finished
+  adoption cannot leave a current-looking version.
+- **Known gaps:** this pass reached `panoply.sh check` = 0 *without* reconciling the rule modules —
+  the doctor inspects five things and would not have noticed 12 of 14 modules having drifted from the
+  kit. The refresh entry above is the correction; that is the failure mode the kit's own docs call
+  "looks like a doc bug".
 
-### Blocking ESLint gate (baseline burned to zero errors) — 2026-09-21
-- **What shipped:** `pnpm lint` exits 0, so the `verify` workflow's Lint step is fatal — a PR that
-  introduces a lint error now shows red instead of being reported and ignored.
-- **Area:** `repo` (CI + repo-wide code hygiene)
-- **Archived plan:** none — the task was a queue row + fragment
-  (`in-progress.d/lint-baseline-burndown.md`), both retired in the shipping commit.
-- **Notable decisions:** the 19 pre-existing errors were fixed, not suppressed. The three
-  `react-hooks/set-state-in-effect` sites were restructured to the patterns React documents for them
-  (remount-by-`key`, honest initial state, render-phase reset) rather than eslint-disabled; the
-  search page picked up an `AbortController` in the process, which also closes an out-of-order
-  response race. `@typescript-eslint/no-require-imports` is scoped **off for `scripts/**/*.js` only**
-  in `eslint.config.mjs` — those maintenance one-offs are CommonJS (`package.json` declares no
-  `"type": "module"`), so `require('pg')` is correct there and the rule was misapplied, not violated.
-- **Known gaps:** 47 warnings remain (unused vars, `@next/next/no-img-element`, exhaustive-deps,
-  a `role="radio"` + `aria-pressed` a11y mismatch in `components/reader/reader-chrome.tsx`) and are
-  deliberately non-fatal — `pnpm lint` runs without `--max-warnings`. Nothing ratchets the warning
-  count down yet, and `verify` is still **report-only** overall: GitHub free plan 403s branch
-  protection on private repos, so no check is required (see
-  `in-progress.d/ci-plan-contract-gates.md`).
+### Projects — reference-based containers (vertical slice) — 2026-09-28
+- **What shipped:** first-class Projects that group existing notes and bookmarks, with a living doc
+  and a proposal-queue path for changes. `/api/projects` (list/create), `/api/projects/[id]`
+  (detail/patch/delete), `/api/projects/[id]/items` (add/detach a reference), the
+  `app/(app)/app/projects` pages, and a Library-group nav entry in the sidebar + mobile bottom bar.
+  Sub-projects are `project_items.item_kind='project'` pointing at the child project.
+- **Area:** `platform`
+- **Archived plan:** `platform/projects/plan.md` (still active — Phase 5 is operator-gated)
+- **Notable decisions:** the nesting policy (one parent, two levels) lives in the domain as
+  `MAX_PROJECT_DEPTH` + `assertNestable` and is enforced in the single write path with a 400 carrying
+  a machine-readable `code` — never a CHECK constraint, never a depth column. The schema change was
+  one additive, idempotent migration hand-applied by the operator; no `db:push` / `db:migrate` /
+  `db:generate` runs from this tree.
+- **Known gaps:** Phase 5 (operator-gated push target, deploy, prod migration) still stands.
+
+### Brain chat surface — 2026-09-29
+- **What shipped:** the brain hosts a chat surface over its own pages, and every citation in an answer
+  opens a real page rather than a dead link.
+- **Area:** `platform`
+- **Archived plan:** `adr/0023-chat-surface-hosted-here-turn-hosted-there.md`
+- **Notable decisions:** the surface is hosted here; the turn is hosted there (Plexo) — ADR-0023.
+- **Known gaps:** see the ADR.
+
+### Legacy v1 route degradation stopgap — 2026-09-26
+- **What shipped:** five carried-over v1 surfaces (`/api/sync`, `/api/sync/mutations`, `/api/notes`,
+  `/api/bookmarks`, `/api/journal`) that had been 500-ing with `42P01` now degrade to a typed
+  `503 surface_unavailable` instead, so mobile sync fails honestly rather than appearing to work.
+- **Area:** `platform`
+- **Archived plan:** `in-progress.d/legacy-v1-routes-stopgap.md` (still open — the direction is an
+  operator decision)
+- **Notable decisions:** the stopgap deliberately does **not** resolve the DB split (v1 content lives
+  in the `pushd` database; `DATABASE_URL` here points at `nexalog_v2`). Operator chose **retire,
+  staged** — mobile moves to the v2 model.
+- **Known gaps:** the shipped v1 `/api/export` route reads through the same path and is therefore
+  *not* a working content export. Repoint / migrate / retire is still undecided.
+
+### Knowledge Garden design tokens (mobile) — 2026-09-26
+- **What shipped:** the design-token system, the type→colour mapping, and a hardcoded-colour gate for
+  the Flutter client (`mobile/lib/src/theme/knowledge_garden_tokens.dart` plus two test files).
+- **Area:** `platform`
+- **Archived plan:** `platform/mobile/parity.md` §4.2
+- **Notable decisions:** colour comes from tokens, never literals — enforced by the hardcoded-colour
+  test, so the decision cannot silently erode.
+- **Known gaps:** parity row 13 (`/app/graph`) is still **Missing** — no screen, no route, no
+  `/api/graph` caller. The remainder needs a build-vs-deferral gate decision before code.

@@ -44,6 +44,7 @@ Those wrappers are the adapters that sit between your code and the Details it de
 | Import alias / module path for internal imports | `@/*` maps to `./*` (the repo root — the layout is root-level, with no source-subdirectory wrapper). |
 | Shared enums, constants, and cross-boundary types live in | No single shared types module exists. Persistence enums live in `lib/db/schema.ts`; feature types live in their `lib/<feature>/` slice; port contracts live with the port (e.g. `lib/intelligence/port.ts`). |
 | File and symbol naming | Kebab-case files, PascalCase React components, camelCase functions, `.test.ts` vitest suffixes under `lib/__tests__/`, `.spec.ts` Playwright suffixes under `e2e/`. |
+| The API/HTTP wrapper all feature code must call | None exists yet — a documented gap. Until one lands, the adapter or feature module owns the call (see above). |
 | The data-access layer all persistence must go through | `lib/db/index.ts` (Drizzle client) with `lib/db/schema.ts`; all tables in the `nexalog` PG schema, never `public`. |
 | Formatter / linter that decides mechanical style | ESLint only (`eslint.config.mjs`) — `pnpm lint`. There is no Prettier config, no other formatter, and no separate format command. |
 | License header | Every new file starts with `// SPDX-License-Identifier: MIT`. |

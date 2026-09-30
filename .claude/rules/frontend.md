@@ -1,6 +1,6 @@
 # Front-End Engineering
 
-> **Applies when:** the project builds a client-side application with Next.js 16.2, React 19.2 components, views, routes, and client state.
+> **Applies when:** the project builds a client-side application (Next.js 16 App Router with React 19 components, views, routes, and client state).
 > **Delete this file (and its `@` import in `CLAUDE.md`) if:** the project has no user interface — a library, CLI, service, or job runner. Pair it with `design-system.md`, which covers how the UI should *look*; this file covers how it should be *built*.
 
 ## The UI is a Detail
@@ -11,9 +11,9 @@
 
 ## File organization
 
-- `components/ui/` - generic, product-unaware primitives (shadcn/ui, configured via `components.json`). They take props, emit events, and know nothing about the domain. A primitive that imports a domain type is no longer a primitive.
-- `components/` outside `ui/` - components that know the product's nouns. Compose them from primitives; see `design-system.md` for the "assemble before you invent" rule.
-- `app/` - route and page entrypoints, including the `(app)` (authenticated) and `(auth)` route groups and the `app/api/<area>/route.ts` handlers. Pages wire data to components and own the route's async states; they should contain little markup of their own.
+- `components/ui/` — generic, product-unaware primitives (shadcn/ui, configured via `components.json`). They take props, emit events, and know nothing about the domain. A primitive that imports a domain type is no longer a primitive.
+- `components/` outside `ui/` — components that know the product's nouns. Compose them from primitives; see `design-system.md` for the "assemble before you invent" rule.
+- `app/` — route and page entrypoints, including the `(app)` (authenticated) and `(auth)` route groups and the `app/api/<area>/route.ts` handlers. Pages wire data to components and own the route's async states; they should contain little markup of their own.
 - One component per file, named the same as the file, exported by name. A file that exports three components hides two of them from search and from reuse.
 - Extract a subcomponent when a piece is reused, or when a file grows past the point where its render is readable in one screen — not merely because a file is long. Splitting a linear render into six files makes it harder, not easier, to follow.
 
@@ -22,12 +22,12 @@
 - **Colocate state with the component that uses it.** Start with local state; it is the only kind that cannot desynchronize.
 - **Lift state only when two siblings must agree on it**, and lift exactly to their nearest common parent — no higher. State parked at the root re-renders the whole tree and turns every read into prop-drilling.
 - **Reach for global/context state only when the value is genuinely app-wide** (session/user, theme, feature flags) or when lifting would thread a prop through four or more layers. Say why in the code or the PR, because global state is the hardest thing here to remove later.
-- **Server data is not application state.** No client cache library is installed; keep server data at route/page boundaries and in feature-local query modules, and copy it into local state only for an in-progress edit buffer.
+- **Server data is not application state.** No client cache library is installed (no TanStack Query, no SWR); keep server data at route/page boundaries and in feature-local query modules, and copy it into local state only for an in-progress edit buffer — then drop it on save, or you own an invalidation bug forever.
 - Derive, do not duplicate. If a value is computable from existing state or props, compute it during render rather than storing it in a second state variable that can drift.
 
 ## Data fetching
 
-- **Never call the raw HTTP primitive (for example `fetch`) directly from a component body.** No shared wrapper exists yet (see above — a gap, not a convention), so route network access through a dedicated hook or the owning feature module under `lib/<feature>/`, and extend that module when its contract is missing.
+- **Never call the raw HTTP primitive (for example `fetch`) directly from a component body.** No shared wrapper exists yet (see above — a gap, not a convention), so route network access through a dedicated hook or the owning feature module under `lib/<feature>/`, and extend that module when its contract is missing. `app/api/<area>/route.ts` handlers call the DB/feature modules server-side rather than fetching their own HTTP surface.
 - If an endpoint's response type is missing or wrong, fix it in the shared types — do not cast at the call site. A local cast makes the next caller repeat the bug.
 - **Avoid request waterfalls.** Requests that do not depend on each other are issued in parallel, not sequentially awaited. A child component that fetches data its parent could have requested alongside its own turns one round-trip into two.
 - Fetch at the route/page level or in a dedicated hook — not inside deeply nested presentational components, which makes the request count a function of the render tree.
