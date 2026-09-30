@@ -125,3 +125,42 @@ child — both rejected by construction. If depth is ever raised, that walk come
 **Still gated (unchanged):** Phase 5 — the push target, the deploy, and any prod migration. This
 change creates no project rows and runs no DDL; it makes the surface, the routes, and the policy real
 against tables that already exist in prod.
+
+---
+
+## 2026-09-30 — the list becomes browsable (search / filter / sort), and the A1.7 rule survives it
+
+The operator asked for a better UI for viewing/filtering/searching/sorting projects. The list page
+had one control — a lifecycle filter — and 38 rows to scroll, now that every project carries a real
+description and a full living doc.
+
+**All of it is one pure module plus one client component.** `apps/web/lib/projects/browse.ts` holds
+the search matcher, the filters, the five sort comparators and the tree projection; it imports
+nothing but the domain's `LifecycleState`, so it is unit-testable with plain values and holds 41
+tests. `app/(app)/app/projects/projects-browser.tsx` holds the state of the four controls and nothing
+else — no rule is re-derived in the component (clean-architecture: a conditional that encodes a rule
+does not live in the UI). `page.tsx` stays a server component and hands the whole list over; nothing
+refetches while the reader types.
+
+**The subtle requirement, restated because it is what a naive filter breaks:** filtering a tree
+drops the parent and takes the child with it. A1.7 forbids that, so a sub-project that matches while
+its parent does not renders the parent as a **context row** (dimmed, marked) with the child indented
+under it. It is asserted directly, under the search, under the lifecycle filter, and with the
+has-sub-projects toggle on — and the row count is asserted, so a silent drop cannot pass.
+
+**One semantic call worth recording.** The has-sub-projects toggle narrows ROOT rows only. A
+sub-project is childless by construction (two-level policy), so applying the toggle to sub-project
+rows filters out every one of them — the rows it is named after. It therefore changes nothing
+visually on its own, and never removes a sub-project. That is deliberate, not an oversight.
+
+**Two structural rules joined the module, same "never drop a row" rule:** a project whose parent is
+absent from the set is a root, and a project whose parent is itself a child (malformed under the
+two-level policy, or a cycle) is promoted to a root rather than indented twice.
+
+**Out of scope, unchanged:** no schema change, no migration, no `db:push`, no data touched, no other
+page touched. Phase 5 stays gated. The Projects routes and the `projects` table are untouched.
+
+**Next step:** unchanged — Phase 5 (operator-gated push target + deploy + prod migration) is still
+the gate for this area. The browse layer adds no new gate of its own.
+
+**Fragment status:** still `open` — the queue row is not finished until Phase 5 lands.
