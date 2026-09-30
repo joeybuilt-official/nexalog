@@ -23,7 +23,6 @@ import {
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { signOut } from "@/lib/auth/client";
-import { useRouter } from "next/navigation";
 import type { User } from "@/lib/auth/types";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { useModals } from "@/components/modal-context";
@@ -93,12 +92,16 @@ export function AppSidebar({ user, workspaces, activeWorkspaceId, onClose }: {
   onClose?: () => void;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
   const { openSearch } = useModals();
 
   async function handleSignOut() {
     await signOut();
-    router.push("/login");
+    // NEXALOG-HOSTSPLIT — a FULL navigation, not `router.push`. Signing out of
+    // the app (app.nexalog.com) must land the reader on the canonical login on
+    // the front host, and the middleware is what decides that; a full load
+    // guarantees it runs. On a single-host deployment this is the same `/login`
+    // it has always been.
+    window.location.assign("/login");
   }
 
   function handleSearchClick() {

@@ -42,7 +42,15 @@ services:
       AUTH_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/appdb
       AUTH_SECRET: ${AUTH_SECRET}
       BETTER_AUTH_URL: https://app.nexalog.com
-      TRUSTED_ORIGIN: https://app.nexalog.com
+      # NEXALOG-HOSTSPLIT — the FRONT-END origin. This one line turns the split on:
+      # nexalog.com serves the landing page + the login page, and login lands the
+      # reader on app.nexalog.com. UNSET here means the split is off and both
+      # hostnames keep serving the same single-host behaviour they do today.
+      NEXALOG_FRONTEND_URL: https://nexalog.com
+      # A LIST now (comma/whitespace separated) — nexalog.com must be present or
+      # the front host's login POST is refused with INVALID_ORIGIN. A single value
+      # still works exactly as before.
+      TRUSTED_ORIGIN: https://app.nexalog.com,https://nexalog.com
       DISABLE_SIGN_UP: "true"
       NEXT_PUBLIC_APP_URL: https://app.nexalog.com
       # WebAuthn RP ID = registrable domain (parent domain covers the subdomain)

@@ -6,16 +6,25 @@ import { signIn, signUp, signInWithGoogle } from "@/lib/auth/client";
 import { PasskeyLogin } from "@/components/auth/passkey-login";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { postLoginDestination } from "@/lib/hosts/split";
 
 const GOOGLE_ENABLED = !!(
   typeof process !== "undefined" &&
   process.env.NEXT_PUBLIC_GOOGLE_AUTH_ENABLED === "true"
 );
 
-export default function LoginForm() {
+export default function LoginForm({ appOrigin = "" }: { appOrigin?: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") ?? "/app/today";
+  // NEXALOG-HOSTSPLIT — `next` arrives from the middleware as an app-RELATIVE
+  // path (`/app/notes`), which the reader must reach on the APP host, not on the
+  // marketing host that served this form. It is sanitized on the way in
+  // (`//evil.com`, a scheme, a backslash and control characters all collapse to
+  // the default) and then resolved against `appOrigin`, which the SERVER passes
+  // in — so the destination's origin is decided server-side and never by the
+  // query string. With no split configured `appOrigin` is `""` and this is the
+  // same relative path the form pushed before.
+  const next = postLoginDestination(appOrigin, searchParams.get("next"));
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -43,6 +52,8 @@ export default function LoginForm() {
           return;
         }
       }
+      // Already absolute when the split is configured (the server supplied the
+      // app origin), so this is a cross-host navigation onto app.nexalog.com.
       router.push(next);
     } catch {
       setError("Something went wrong");
