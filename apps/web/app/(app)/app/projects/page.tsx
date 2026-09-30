@@ -41,7 +41,10 @@ export default async function ProjectsPage() {
         </div>
       </header>
 
-      <NewProjectForm workspaceId={workspace.id} />
+      <NewProjectForm
+        workspaceId={workspace.id}
+        projects={projects.map((p) => ({ id: p.id, name: p.name, parentId: p.parentId }))}
+      />
 
       {projects.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border px-6 py-16 text-center">
