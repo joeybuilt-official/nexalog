@@ -24,13 +24,13 @@ if [ -f scripts/sync-agents.sh ]; then
 fi
 
 # Docs landing gate — no code change lands without its worklog line in the same commit.
-# Nexalog's worklog target is docs/claude/worklog.md (no CHANGELOG.md/HISTORY.md here).
+# Nexalog's worklog target is docs/agents/worklog.md (no CHANGELOG.md/HISTORY.md here).
 if [ -f scripts/check-docs.sh ]; then
   echo "pre-commit: docs gate…"; sh scripts/check-docs.sh
 fi
 
-# Plan-home gate — a plan doc may only live in the allowed home (a row in docs/claude/roadmap.md,
-# depth at docs/claude/<area>/<slug>/plan.md). Wired 2026-09-30; also runs in required CI.
+# Plan-home gate — a plan doc may only live in the allowed home (a row in docs/agents/roadmap.md,
+# depth at docs/agents/<area>/<slug>/plan.md). Wired 2026-09-30; also runs in required CI.
 if [ -f scripts/check-plan-home.sh ]; then
   echo "pre-commit: plan home…"; sh scripts/check-plan-home.sh --staged
 fi

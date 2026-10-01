@@ -53,7 +53,7 @@ import "package:flutter_test/flutter_test.dart";
 ///
 /// The [negative control](#a-synthetic-violation-is-detected) below is what
 /// keeps this from being a gate that passes vacuously — the failure mode this
-/// repo has a documented habit of (see `docs/claude/platform/mobile/parity.md`
+/// repo has a documented habit of (see `docs/agents/platform/mobile/parity.md`
 /// §1). If the detector ever stops detecting, that test goes red.
 void main() {
   /// The one file allowed to hold raw colour literals.

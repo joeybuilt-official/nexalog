@@ -21,7 +21,7 @@
 -- `pnpm db:generate` must never be run against it from this tree, and
 -- `pnpm db:push` is banned outright. A human applies this change by hand, scoped
 -- to `nexalog.*`, then verifies it against the system catalog. See
--- `.claude/rules/database.md` → "This repository runs against a SHARED database".
+-- `.agents/rules/database.md` → "This repository runs against a SHARED database".
 --
 -- Apply by hand (scoped to the nexalog schema; never `public`, never `auth`):
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f drizzle/0028_project_items_kind_project.sql

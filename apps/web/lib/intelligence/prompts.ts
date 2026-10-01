@@ -2,7 +2,7 @@
 
 /**
  * Prompt templates — CONFIGURATION, not code hidden at a call site
- * (`.claude/rules/ai-features.md`: "keep prompts as configuration … versioned
+ * (`.agents/rules/ai-features.md`: "keep prompts as configuration … versioned
  * templates with named variables"). Each entry is versioned so a later model or
  * prompt can be attributed, and a call site renders one by name rather than
  * inlining a string.

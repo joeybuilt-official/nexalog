@@ -6,7 +6,7 @@
 // no model id and no wire shape, and its tests run with an in-process fake — no
 // network, no database, no framework.
 //
-// DEGRADE, NEVER HARD-FAIL (`.claude/rules/ai-features.md`, "Guardrails"):
+// DEGRADE, NEVER HARD-FAIL (`.agents/rules/ai-features.md`, "Guardrails"):
 //   - no model configured        → the labelled mechanical digest, not a 500;
 //   - the model errored          → the same digest, reason `model_failed`;
 //   - the model returned nothing → `empty_output`.

@@ -3,7 +3,7 @@
  * Endpoint test for POST /api/captures/[id]/review — the operator's accept /
  * reject on a `status: review` capture.
  *
- * Covers, per `.claude/rules/testing.md` → "What an endpoint test asserts":
+ * Covers, per `.agents/rules/testing.md` → "What an endpoint test asserts":
  *   - success (both decisions) with the exact response shape;
  *   - every validation failure (missing/invalid id, body not JSON, wrong type,
  *     missing field, rejected extra field) and the status each produces;

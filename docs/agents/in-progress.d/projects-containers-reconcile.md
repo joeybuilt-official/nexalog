@@ -1,0 +1,342 @@
+---
+id: projects-containers-reconcile
+title: Projects — reference-based containers (ADR-0018 APPROVED 2026-09-26; Phase 3 split — core slice may start, migration slice held)
+status: open
+area: platform
+order: 3
+risk: operator-confirm
+---
+
+First-class Nexalog Project grouping over existing notes/bookmarks by **reference**, with a living
+doc and a lifecycle.
+
+**The contradiction is resolved. Verdict: Projects is NOT shipped in this repo — the plan doc was
+wrong, the roadmap was right.** `docs/agents/platform/projects/plan.md` carried "SHIPPED + LIVE @
+2026-06-12", which is **true of the V1 app at `/srv/nexalog-v1` and false of this tree**.
+Commit `1866c2c` (§1.7 deletions) removed every Projects route and page plus `lib/plexo.ts` — the
+client ADR-0001's D3 brainstorm contract was built on. What survives is remnants: dead V1 migration
+SQL (`drizzle/0012`, `0015`), an orphaned `lib/projects/{domain,store}.ts` with **no importer**, its
+still-passing tests, and three `schema.ts` declarations — of which `schema.projects` is **not** dead,
+because the live offline-sync routes reference it (`/api/sync`, `/api/sync/mutations`). The plan doc
+now carries a ⚠ banner saying exactly this, and `roadmap.md` + `in-progress.md` row 3 agree.
+
+**Phase 2 is CLOSED — the operator approved on 2026-09-26.** `adr/0018-projects-reference-based-containers.md`
+is now **Accepted** and carries the dispositions of its six questions in §Operator decisions:
+Q2 (member kinds), Q3 (living doc as the page body, one commit per save), Q4 (keep the V1 remnants
+until Phase 5) and Q6 (web-first; parity after) all take the ADR's own defaults. Q1 (approve/reject)
+is approved. The deliverables for the record are `docs/agents/platform/projects/design.md` and
+ADR-0018, which supersedes `platform/projects/adr/0001-nexalog-projects.md` (V1-era, Postgres-first).
+
+**Q5 — `nexalog_v2` provenance — was ANSWERED 2026-09-26** by the read-only production inspection
+the approval called for: `nexalog_v2` holds only the 3 v2 app-state tables and **no v1 content at
+all**, so Projects DDL there is a `CREATE`, never an `ALTER` — the hold on the migration slice is
+released for the DDL question. The **data** half (Projects' member content lives in `pushd.nexalog`)
+folded into queue row 5 and the operator's **retire, staged** direction. Shape of Phase 3 now:
+
+- **May start now:** the pure `packages/core` slice — domain (`LifecycleState`, `MemberRef`),
+  contracts, use cases, port declarations. Zero-dep, testable with fakes, cannot be wrong about what
+  Postgres holds.
+- **HELD until Q5 lands:** the migration, the Drizzle adapter, the composition wiring, and the
+  routes. No Projects migration can be generated while the `CREATE`-vs-`ALTER` question is open.
+
+**Decisions settled** (unchanged): a project **is** a brain page (`projects/<slug>.md`, `type:
+project`, body = living doc, `members:` = flat `"<kind>:<ref>"` strings); membership is a repository
+reference, never a DB row id; two **derived, rebuildable** index tables in the `nexalog` PG schema
+(never `public`) — `project_index` + `project_members` — reconcile exactly like `capture_index`;
+integrity is enforced on write, reconciled on rebuild, and surfaced when broken (no FK is possible
+on a git path); lifecycle `draft → active → archived` in a pure domain function; deletion never
+cascades to members; the domain lives in `packages/core` (pure, zero-dep) behind ports, not in an
+`apps/web/lib/` slice.
+
+**Nothing shipped by this change: no migration written, no `packages/`/`apps/` source touched, no
+deploy.** Phase 5 remains operator-gated (push target + deploy + prod migration), and retiring the
+V1 remnants stays inside it.
+
+**Next step:** run the read-only `nexalog_v2` inspection to close Q5 (it is the same unknown as the
+exit door's Q5), then start Phase 3 on the pure `packages/core` slice — design `§10` phasing, ship
+gate `pnpm typecheck` + `pnpm depcruise` + `pnpm test` + `pnpm build` all green.
+
+---
+
+## 2026-09-27 — AMENDMENT A1: sub-projects are in scope (operator directive)
+
+The operator directed hierarchy support before Phase 3 build: **project → sub-project, two levels**.
+The decision record is **Amendment A1 appended to `docs/agents/platform/projects/adr/0001-nexalog-projects.md`**
+(§A1.1–A1.12), with matching edits to `design.md` (§3.1 note, §3.2, §3.5, §7, §8, §11), `plan.md`
+(banner) and this fragment. Locked by the operator: **representation = `parent_id` self-reference**
+(one parent, strict tree; reference-based multi-parent via `project_items.item_kind='project'`
+recorded as the rejected alternative), **depth = two levels, policy-enforced in the validated write
+path** (never a trigger, never a CHECK — a CHECK cannot see another row).
+
+Settled in A1: cycle prevention as one batched guard (R1–R5, including a `WITH RECURSIVE` ancestor
+walk, covered by a test) following the `filterOwnedRefs` pattern; lifecycle = **no cascade** —
+children keep their state, the UI badges and offers an explicit bulk archive, and an archived parent
+is still rendered for any rendered child; living-doc rollup = **computed, never written back** — the
+digest value object gains `subProjects`/`parent` and the port's methods do not change; DDL = additive,
+idempotent, **manual `psql` only** (`parent_id` + self-FK `ON DELETE SET NULL` + index + optional
+`import_ref` unique), with no migration file and no `db:push`/`db:migrate`; UI = a two-level tree in
+the existing authed shell; import = the flat 37 land as 35 roots + 1 synthesized `draft` parent + 2
+`//`-derived children, with **inferred structure routed through `project_candidates`** for review
+while the mechanical mapping imports directly.
+
+Also corrected in the same change: ADR-0001's header read "PROPOSED — awaiting operator approval"
+while its own body, `plan.md` and `checklist.md` recorded the gate as passed 2026-06-12; the header
+now agrees with the body, and the disagreement is recorded (A1.10 Finding 1). A1.10 Finding 3 records
+the ADR-0001↔ADR-0018 supersession and carries A1 into the brain-page placement as
+`parent: projects/<slug>` + `parent_slug`. **Nothing shipped: docs only — no code, no migration file,
+no DB command, no deploy.**
+
+---
+
+## 2026-09-28 — the vertical slice shipped; Phase 5 still gated
+
+The surface exists. `/api/projects` (list/create), `/api/projects/[id]` (detail/patch/delete) and
+`/api/projects/[id]/items` (add/detach a reference) plus `app/(app)/app/projects/{page,[id]/page}.tsx`
+and a Library-group nav entry in `apps/web/components/app-sidebar.tsx` +
+`apps/web/components/mobile-bottom-nav.tsx`. Every route resolves the caller's workspaces first and
+scopes its query to them, so another workspace's project id is a 404.
+
+**Sub-projects landed on the reference container, not on a `parent_id` column.** A sub-project is a
+`project_items` row with `item_kind='project'` whose `item_id` is the CHILD project's id — the same
+mechanism the item layer already used, so the item-kind check widening is the ONE schema change
+(`apps/web/drizzle/0028_project_items_kind_project.sql`, additive + idempotent, **for the record
+only**: the operator applies it by hand, and this tree never runs `db:push`/`db:migrate`/`db:generate`
+against the shared database). A1.6's `parent_id` + self-FK DDL is therefore **not** part of this slice
+— the edge is a row in `project_items`, and the `projects` table was not altered.
+
+**The nesting policy is the domain's, and only the domain's.** `MAX_PROJECT_DEPTH = 2` plus
+`assertNestable` / `nestingViolation` in `apps/web/lib/projects/domain.ts` encode the two container
+rules (one parent per project; a sub-project may not itself have a sub-project, and a parent must be a
+root), and `addItemToProject` is the single write path that calls the guard. A refusal throws a coded
+`ProjectNestingError` (`self_nesting` / `already_has_parent` / `child_is_parent` / `parent_is_child`)
+which the route maps to a 400 `invalid_nesting` — clients branch on the code, never on the message.
+Two ordering facts worth keeping: **ownership is checked before the guard**, so a refusal can never
+disclose the shape of a project the caller cannot see (a test asserts the structural queries are not
+issued at all); and nothing is written when the guard refuses (also asserted).
+
+**Where the UI states the limit:** the detail page's Sub-projects panel says "projects nest 2 levels
+deep" in place of an add control when the project is itself a sub-project, because a rule the user
+cannot see reads as a bug when it fires.
+
+**Cycle prevention falls out of the two rules** rather than needing A1.2's `WITH RECURSIVE` ancestor
+walk: every shape a cycle requires is a child that already has a parent, or a parent that is itself a
+child — both rejected by construction. If depth is ever raised, that walk comes back with it.
+
+**Still gated (unchanged):** Phase 5 — the push target, the deploy, and any prod migration. This
+change creates no project rows and runs no DDL; it makes the surface, the routes, and the policy real
+against tables that already exist in prod.
+
+---
+
+## 2026-09-30 — the list becomes browsable (search / filter / sort), and the A1.7 rule survives it
+
+The operator asked for a better UI for viewing/filtering/searching/sorting projects. The list page
+had one control — a lifecycle filter — and 38 rows to scroll, now that every project carries a real
+description and a full living doc.
+
+**All of it is one pure module plus one client component.** `apps/web/lib/projects/browse.ts` holds
+the search matcher, the filters, the five sort comparators and the tree projection; it imports
+nothing but the domain's `LifecycleState`, so it is unit-testable with plain values and holds 41
+tests. `app/(app)/app/projects/projects-browser.tsx` holds the state of the four controls and nothing
+else — no rule is re-derived in the component (clean-architecture: a conditional that encodes a rule
+does not live in the UI). `page.tsx` stays a server component and hands the whole list over; nothing
+refetches while the reader types.
+
+**The subtle requirement, restated because it is what a naive filter breaks:** filtering a tree
+drops the parent and takes the child with it. A1.7 forbids that, so a sub-project that matches while
+its parent does not renders the parent as a **context row** (dimmed, marked) with the child indented
+under it. It is asserted directly, under the search, under the lifecycle filter, and with the
+has-sub-projects toggle on — and the row count is asserted, so a silent drop cannot pass.
+
+**One semantic call worth recording.** The has-sub-projects toggle narrows ROOT rows only. A
+sub-project is childless by construction (two-level policy), so applying the toggle to sub-project
+rows filters out every one of them — the rows it is named after. It therefore changes nothing
+visually on its own, and never removes a sub-project. That is deliberate, not an oversight.
+
+**Two structural rules joined the module, same "never drop a row" rule:** a project whose parent is
+absent from the set is a root, and a project whose parent is itself a child (malformed under the
+two-level policy, or a cycle) is promoted to a root rather than indented twice.
+
+**Out of scope, unchanged:** no schema change, no migration, no `db:push`, no data touched, no other
+page touched. Phase 5 stays gated. The Projects routes and the `projects` table are untouched.
+
+**Next step:** unchanged — Phase 5 (operator-gated push target + deploy + prod migration) is still
+the gate for this area. The browse layer adds no new gate of its own.
+
+**Fragment status:** still `open` — the queue row is not finished until Phase 5 lands.
+
+---
+
+## 2026-09-30 — the hierarchy becomes manageable: create a sub-project directly, and MOVE one
+
+The operator's ask was for Nexalog to be the system of record for the project tree. Rename, delete
+and flat create already lived in the UI; what did not exist was any way to RE-SHAPE the hierarchy —
+a sub-project could only be made by creating a root and then nesting it, and once nested it could
+neither move nor be lifted back out.
+
+**Nothing new was invented for the storage.** A sub-project is still a `project_items` row with
+`item_kind='project'` pointing at the CHILD project — the reference-based container ADR-0018
+§D1/§D2 put in place — so there is no `parent_id` column, no self-FK, no migration, and the
+`projects` table was not touched. The ancestry walk reads that same edge through the existing
+`getProjectParentId`, so there is exactly one nesting mechanism.
+
+**The load-bearing finding: the add-path guard could not police a move, and pretending otherwise
+would have shipped a cycle hole.** `nestingViolation` refuses a child that "already has a parent"
+(R1) — but a move's child is normally ALREADY someone's child, so R1 is the edge being rewritten
+rather than a bar. The old fragment's claim that "cycle prevention falls out of the two rules"
+is true of an ADD and false of a MOVE, and A1.2's ancestor walk is the piece that was deferred and
+now has to exist. It is `reparentViolation` / `assertReparentable` in `lib/projects/domain`,
+beside the add-path guard, over a new `ReparentCheck` value object; the cycle test is a single
+identity check — the project may not appear anywhere in the ancestry it is about to join — which
+covers the direct-child case and any deeper chain. `projectId: null` is the create path (a project
+that does not exist cannot be its own ancestor), so ONE guard serves both verbs. `cycle` joins
+`NESTING_VIOLATION_CODES` so clients branch on one enum for add, move and create.
+
+**Where the writes are, and why they are ordered the way they are.** `createProject` validates the
+parent before inserting anything, then writes the project row and then the edge (the edge needs the
+child's id, so it is the one step that has to follow — a refused create therefore leaves nothing).
+`reparentProject` reports an identical parent as a no-op, and otherwise replaces the edge as
+DELETE-then-INSERT inside ONE `db.transaction`, because a half-applied move leaves a project
+parentless or, on a retry, with two parents. The ancestry walk is `seen`-guarded and bounded rather
+than trusting the tree to be acyclic: it runs inside a cycle REFUSAL, so it must terminate on the
+malformed data it exists to catch.
+
+**The UI cannot offer what the server will refuse.** Both new controls narrow their options with the
+domain's `parentCandidates` (roots only, never the project itself) and a control that would 400 on
+the obvious choice is replaced by an explanation of why.
+
+**Out of scope, unchanged:** no schema change, no migration, no `db:push`, no data touched, no
+deploy, and no change to `browse.ts` — the A1.7 invariant is preserved by construction, since the
+guard refuses the third level and a move can only produce a shape the two-level tree already
+handled. Phase 5 stays gated.
+
+**Next step:** unchanged — Phase 5 (operator-gated push target + deploy + prod migration) is still
+the gate for this area. Creating a sub-project and moving/promoting one are now real against the
+tables that already exist in prod; nothing here needs DDL.
+
+---
+
+## 2026-09-30 — the linked notes become a real surface (and the list never reads a body)
+
+The operator asked for the notes linked to a project (`project_items.item_kind='note'`, 445 rows) to
+be surfaced, with a detail view on demand. The request reads as UI work; what actually decided the
+design is a data shape: **a note can be a whole conversation and some rows exceed 1,000,000
+characters**, so a list that selected `notes.content` would look right in a small database and ship
+megabytes per page in production.
+
+**The body is read in exactly one place.** `getProjectNotes` selects identity, title, the note's own
+`date`, both timestamps and `left(content, NOTE_EXCERPT_SOURCE_CHARS)` — never the column. The
+on-demand route (`/app/projects/<id>/notes/<noteId>`, `getProjectNote`) is where the body is read, for
+one note, because the reader asked. Postgres still detoasts the value to take its prefix; what is
+avoided is the megabyte crossing the wire and reaching the DOM — said that way in the code rather than
+overclaimed.
+
+**All list rules live in one pure module** (`apps/web/lib/projects/notes.ts`, 43 tests, imports nothing
+but types): which rows survive, the three total sort comparators, excerpt/truncation, the empty-state
+copy, and the body-shape classifier the detail view uses. The section component holds only the sort
+state and calls into it, so the client's re-sort and the server's projection run the identical
+comparator.
+
+**Soft-deletes are refused twice, on purpose.** The query filters `deleted_at IS NULL` (the first
+refusal) and the pure projection drops a row carrying `deleted_at` (the second), each asserted
+independently — so a future edit that loses the WHERE clause cannot render a deleted note. Both
+refusals were proven to bite by mutation (below).
+
+**Notes moved OUT of "Grouped knowledge" into their own section.** Leaving them in both places would
+render every linked note twice on one page; the new section is where the date and the excerpt live,
+which a bare title row cannot carry. `groupedCount` now counts what the section actually renders.
+
+**The row order rule has one home.** The SQL carries no `ORDER BY`; ordering is the pure module's, so
+the list's order cannot depend on which layer you read.
+
+**Two rules the tests found, not the design:** flattening every tag to a space produced
+`there , world` from `<strong>there</strong>, world` (block-ending tags are now the word boundary,
+inline tags are removed outright), and a whitespace-only `date` reached the DOM as an empty line
+instead of `null`.
+
+**Proven to bite:** five mutations each turned the intended test RED — sanitiser removed from the
+detail view (the `<script>` / `onerror` / `javascript:` vectors survive), the projection's soft-delete
+guard neutered (3 RED), the list query widened to `content`, the excerpt cut back to a UTF-16 slice
+(half an emoji), the query's `deleted_at IS NULL` dropped. All five reverted.
+
+**Out of scope, unchanged:** no schema change, no migration, no `db:push`, no data touched, no deploy,
+Phase 5 still gated. **Not verified:** no database and no browser were available here — the SQL is
+asserted against the real Drizzle builders with a recording fake and has never run against the shared
+Postgres, and no live page render was observed.
+
+**Next step:** unchanged — Phase 5 (operator-gated push target + deploy + prod migration) is still the
+gate for this area. The notes section adds no gate of its own, and no migration.
+
+---
+
+## Brief synthesis — SHIPPED 2026-10-01 (branch `feat/project-brief-synthesis`)
+
+Operator request: a synthesized markdown summary of a project built from its linked notes,
+sub-projects and themes, exposed through an API route and shown on the project detail page.
+
+**What landed.** `lib/projects/brief.ts` (pure), `lib/projects/brief-service.ts` (the use case),
+the brief's three bounded reads in `lib/projects/store.ts` (beside every other project query, so
+workspace scoping stays in one place and no new slice reaches the DB directly),
+`lib/projects/brief-client.ts` (the one client call), the first implementation of ADR-0014/0017's
+**IntelligencePort** (`lib/intelligence/{port,embedded-adapter,prompts,resolve}.ts`), `GET|POST
+/api/projects/[id]/brief`, and `BriefSection` on the detail page.
+
+**The rule that shaped it:** a note body must never reach the brief. The store selects
+`length(content)` and the embedding, never `content`; a million-character note contributes a title
+and a number. Theme matching is a pure cosine against `memory_themes`' own centroids — READ, never
+recomputed (the clustering pass is a separate change).
+
+**Degradation is the contract, not an edge case:** with no `LLM_BASE_URL`/`LLM_API_KEY` the route
+returns `state: "fallback"` — a clearly-labelled mechanical digest — with 200, never a 5xx. A model
+error and an empty answer degrade the same way, with a stable reason code and no upstream text.
+
+**Out of scope, unchanged:** no schema change, no migration, no `db:push`, no data touched, no
+deploy, no write to any external system, no recomputation of `memory_themes`. Phase 5 stays gated.
+
+**Not verified here:** no database and no browser — the SQL is asserted against the real Drizzle
+builders with a recording fake; the embedded adapter is asserted against a stubbed `fetch`; no live
+model call and no live page render were observed. Briefs are not persisted in this slice.
+
+**Next step:** unchanged — Phase 5 remains the gate for this area.
+
+
+---
+
+## Brief publish — SHIPPED 2026-10-01 (branch `feat/brief-publish-to-brain`)
+
+A project's SYNTHESIZED brief can now be proposed into gbrain through the app's
+already-existing proposal queue (`take_proposals`, `kind = 'brief'`). Nothing new
+was integrated and no credential was added.
+
+**The one refusal the feature turns on.** A `fallback` brief is a mechanical digest
+of the project's own data, not a claim about it, so it is REFUSED with a typed code
+(409 `brief_not_synthesized`, carrying the brief's own reason) and the row is never
+written. Only `state === "synthesized"` is publishable.
+
+**Explicit, never a side effect.** Only `POST {intent:"publish"}` reaches the queue;
+a bare no-body POST still just regenerates, and `GET` (the page render) writes
+nothing.
+
+**Idempotency is the content digest, not a ledger.** `content_hash` digests the
+brief itself, so publishing the same brief twice is `created: false` and a brief
+RE-SYNTHESIZED after the project changed is deliberately a new proposal.
+
+**Degrade honestly:** no `GBRAIN_DATABASE_URL` (or a queue write failure) is
+`503 gbrain_unavailable` with a typed code — never a fake success.
+
+**Also corrected:** `apps/web/lib/proposals/queue.ts`'s header claimed this path was
+inert because the containers sat on different Docker networks. It is LIVE —
+`GBRAIN_DATABASE_URL` is set in the deploy and `gbrain-postgres:5432` resolves from
+the web container.
+
+**Out of scope, unchanged:** no schema change, no migration, no `db:push`, no data
+touched, no deploy, no write to the brain (a publish is a PROPOSAL; the operator
+still decides). Phase 5 stays gated.
+
+**Not verified here:** no live deploy and no live model call — the queue is
+exercised against a fake keyed exactly as the real unique index keys it, and the
+store reads against a recording fake. No browser render observed.
+
+**Next step:** unchanged — Phase 5 (operator-gated push target + deploy + prod
+migration) remains the gate. There is now a real producer of project context into
+the brain, which is the piece Phase 5's push target was implicitly waiting for.

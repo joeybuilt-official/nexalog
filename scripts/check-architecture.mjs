@@ -21,7 +21,7 @@
 // than it must, the gate fails loudly with the counts and the likely causes — instead of
 // reporting success.
 //
-// WHAT IT ASSERTS (see AGENTS.md / .claude/rules/clean-architecture.md → Review checklist 1)
+// WHAT IT ASSERTS (see AGENTS.md / .agents/rules/clean-architecture.md → Review checklist 1)
 //   1. `typescript` resolves from the repo root, and `tsconfig.depcruise.json` exists.
 //      These are the two inputs whose absence makes depcruise degrade silently.
 //   2. Overall coverage: cruised tracked in-scope sources ≥ MIN_COVERAGE (90%) of all tracked
@@ -255,7 +255,7 @@ if (problems.length > 0) {
       "       too broad: every exclude entry is an unanchored regex matched against the whole",
       "       path, so `build` also excludes `lib/export/build-archive.ts`. Anchor with (^|/)…(/|$).",
       "",
-      "  this guard is documented in .claude/rules/clean-architecture.md → \"Known gaps\".",
+      "  this guard is documented in .agents/rules/clean-architecture.md → \"Known gaps\".",
       "",
     ].join("\n"),
   );

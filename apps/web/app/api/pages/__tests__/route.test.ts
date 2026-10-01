@@ -17,7 +17,7 @@
  *     because the index is a catalogue, not a corpus.
  *
  * GBrain and the brain repo are both faked at the module boundary (the repo's
- * convention for route tests, `.claude/rules/testing.md` → "Mocking"): the
+ * convention for route tests, `.agents/rules/testing.md` → "Mocking"): the
  * route's DECISION is what is under test, not the MCP transport.
  *
  * Co-located with the route it covers, beside `route.ts`, like every other

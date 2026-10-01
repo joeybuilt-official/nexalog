@@ -76,7 +76,7 @@ const CHAIN_METHODS = [
  * Three queue kinds, deliberately SEPARATE, because a write that consumed a read
  * queue entry would shift every later read by one and the assertions would still
  * pass while reading the wrong row (the "sequentially-consumed mocks go stale"
- * failure mode in `.claude/rules/testing.md`):
+ * failure mode in `.agents/rules/testing.md`):
  *
  *   - `read`  — a `select` chain; consumes the next queued read result;
  *   - `write` — an `insert`/`update` chain; consumes the next queued write result;

@@ -10,7 +10,7 @@
  * routes 500 — mobile offline sync fails in production.
  *
  * The underlying data-ownership decision is OPEN and deliberately NOT made
- * here (see `docs/claude/in-progress.d/legacy-v1-routes-stopgap.md`). What this
+ * here (see `docs/agents/in-progress.d/legacy-v1-routes-stopgap.md`). What this
  * module fixes is the *failure mode*: a missing table is a server-side
  * configuration problem, so it gets its own honest, typed, non-fatal response
  * instead of an unhandled 500, and every unrelated failure keeps propagating.
@@ -80,7 +80,7 @@ export function findMissingRelation(error: unknown): MissingRelation | null {
  * Returns `null` when the error is anything else, so callers rethrow and
  * genuinely unexpected failures keep their 500 + stack trace. The relation name
  * is logged, never returned: it is internal schema detail (see
- * `.claude/rules/error-handling.md` → "never leak SQL, internal paths").
+ * `.agents/rules/error-handling.md` → "never leak SQL, internal paths").
  */
 export function surfaceUnavailableIfMissingRelation(
   error: unknown,

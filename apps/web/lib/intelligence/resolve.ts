@@ -2,7 +2,7 @@
 
 /**
  * The port resolver — the ONE place an adapter is constructed for intelligence,
- * and the ONE place the app decides which tier answered (`.claude/rules/
+ * and the ONE place the app decides which tier answered (`.agents/rules/
  * ai-features.md`: "branching on which adapter is active is the port resolver's
  * job, never a feature's").
  *

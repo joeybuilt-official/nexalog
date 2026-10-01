@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # check-docs.sh — the landing gate: no code change may land without its doc update in the same commit.
 #
-# Enforces the "same-change update contract" (.claude/rules/documentation.md) mechanically: a commit
+# Enforces the "same-change update contract" (.agents/rules/documentation.md) mechanically: a commit
 # that changes any non-doc file (source, config, schema, scripts, CI) must also change the worklog
 # target in the SAME commit. This is the provider-neutral floor — it binds every agent in every tool,
 # because it runs in required CI (scripts/templates/ci-verify.yml) and, for convenience, in the
@@ -10,7 +10,7 @@
 #   sh scripts/check-docs.sh              # check the staged changes (pre-commit context)
 #   sh scripts/check-docs.sh --since REF  # check every commit in REF..HEAD (CI context)
 #
-# Worklog target: CHANGELOG.md / HISTORY.md if present, else docs/claude/worklog.md.
+# Worklog target: CHANGELOG.md / HISTORY.md if present, else docs/agents/worklog.md.
 # Override with DOCS_WORKLOG=<path>. "Doc" files are exempt from the mandatory line; the exempt
 # extensions default to `md` and are overridable via DOCS_EXEMPT (space-separated, e.g. `md rst adoc`).
 # A repo whose product IS markdown (a docs site, a blog) must set DOCS_EXEMPT to empty so shipped .md
@@ -28,9 +28,9 @@ WORKLOG="${DOCS_WORKLOG:-}"
 if [ -z "$WORKLOG" ]; then
   if [ -f CHANGELOG.md ]; then WORKLOG="CHANGELOG.md"
   elif [ -f HISTORY.md ]; then WORKLOG="HISTORY.md"
-  elif [ -f docs/claude/worklog.md ]; then WORKLOG="docs/claude/worklog.md"
+  elif [ -f docs/agents/worklog.md ]; then WORKLOG="docs/agents/worklog.md"
   else
-    echo "check-docs: no worklog target (CHANGELOG.md / HISTORY.md / docs/claude/worklog.md)" >&2
+    echo "check-docs: no worklog target (CHANGELOG.md / HISTORY.md / docs/agents/worklog.md)" >&2
     exit 1
   fi
 fi
@@ -58,7 +58,7 @@ check_files() {
   done
   if [ "$changed_code" -eq 1 ] && [ "$touched_worklog" -eq 0 ]; then
     echo "check-docs: $label changed code but not $WORKLOG" >&2
-    echo "  add a line to $WORKLOG in the same commit (see .claude/rules/documentation.md)" >&2
+    echo "  add a line to $WORKLOG in the same commit (see .agents/rules/documentation.md)" >&2
     return 1
   fi
   return 0

@@ -1,15 +1,15 @@
 #!/usr/bin/env sh
 # check-plan-home.sh — the plan-home gate: one canonical plan doc per project, and only one.
 #
-# Enforces the plan-home rule (.claude/rules/workflow.md → Planning Workflow) mechanically. The
+# Enforces the plan-home rule (.agents/rules/workflow.md → Planning Workflow) mechanically. The
 # convention has existed since the kit shipped; what it never had was a check, and an advisory rule
 # drifts: plan docs accumulate at the repo root (PLAN.md, ROADMAP.md, <feature>-plan.md,
 # PHASED-PLAN.md) until nobody can tell which one is authoritative and an agent picking the project
 # up reads the wrong one.
 #
-# The rule: a plan is a row in docs/claude/roadmap.md. Detail lives at
-# docs/claude/<area>/<feature>/plan.md, linked from that row. Nothing plan-shaped lives anywhere
-# else — not at the repo root, not flat in docs/claude/, not in a top-level <name>-plan/ directory.
+# The rule: a plan is a row in docs/agents/roadmap.md. Detail lives at
+# docs/agents/<area>/<feature>/plan.md, linked from that row. Nothing plan-shaped lives anywhere
+# else — not at the repo root, not flat in docs/agents/, not in a top-level <name>-plan/ directory.
 #
 #   sh scripts/check-plan-home.sh            # check tracked files (CI context)
 #   sh scripts/check-plan-home.sh --staged   # check staged additions only (pre-commit context)
@@ -27,7 +27,7 @@ cd "$ROOT"
 
 [ "${PLAN_HOME_OFF:-0}" = "1" ] && { echo "check-plan-home: disabled (PLAN_HOME_OFF=1)"; exit 0; }
 
-CANON="docs/claude/roadmap.md"
+CANON="docs/agents/roadmap.md"
 
 # --- collect candidate files -------------------------------------------------
 # Tracked files by default; staged ADDITIONS in --staged mode (renames/edits of an already-known
@@ -63,14 +63,14 @@ is_plan_shaped() {
 is_allowed() {
   case "$1" in
     "$CANON") return 0;;
-    docs/claude/in-progress.md) return 0;;
-    docs/claude/_templates/*) return 0;;
-    docs/claude/reports/*) return 0;;
-    # docs/claude/<area>/<feature>/plan.md — and anything under an area's completed/ archive.
-    docs/claude/*/*/plan.md) return 0;;
-    docs/claude/*/completed/*) return 0;;
+    docs/agents/in-progress.md) return 0;;
+    docs/agents/_templates/*) return 0;;
+    docs/agents/reports/*) return 0;;
+    # docs/agents/<area>/<feature>/plan.md — and anything under an area's completed/ archive.
+    docs/agents/*/*/plan.md) return 0;;
+    docs/agents/*/completed/*) return 0;;
     # Vendored / generated trees are not ours to police.
-    node_modules/*|vendor/*|.claude-kit-tmp/*|*/node_modules/*) return 0;;
+    node_modules/*|vendor/*|.agents-kit-tmp/*|*/node_modules/*) return 0;;
   esac
   for allow in ${PLAN_HOME_ALLOW:-}; do
     # shellcheck disable=SC2254 # glob match is intentional
@@ -96,9 +96,9 @@ if [ "$count" -gt 0 ]; then
   echo "" >&2
   echo "  Every plan belongs to $CANON:" >&2
   echo "    * a plan is a ROW in $CANON (Now / Next / Later)" >&2
-  echo "    * detail goes to docs/claude/<area>/<feature>/plan.md, linked from that row" >&2
+  echo "    * detail goes to docs/agents/<area>/<feature>/plan.md, linked from that row" >&2
   echo "    * fold each file above into a roadmap row, then archive it under" >&2
-  echo "      docs/claude/<area>/completed/ — archive, never delete" >&2
+  echo "      docs/agents/<area>/completed/ — archive, never delete" >&2
   echo "" >&2
   echo "  Legitimate exception? add it to PLAN_HOME_ALLOW. Adopting a repo with a backlog?" >&2
   echo "  set PLAN_HOME_OFF=1, fold the strays, then turn the gate back on." >&2
@@ -108,7 +108,7 @@ fi
 # The canonical doc must actually exist — a repo with no roadmap has no plan home at all.
 if [ ! -f "$CANON" ]; then
   echo "check-plan-home: $CANON is missing — the project has no canonical plan home" >&2
-  echo "  create it from docs/claude/_templates/ (or run the panoply adapt) before planning work" >&2
+  echo "  create it from docs/agents/_templates/ (or run the panoply adapt) before planning work" >&2
   exit 1
 fi
 

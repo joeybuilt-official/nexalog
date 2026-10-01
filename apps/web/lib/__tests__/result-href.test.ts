@@ -23,7 +23,7 @@
  *      prefers that `href` and NEVER invents a route for a row that has none.
  *
  * This file lives under `lib/__tests__/` per the repo's convention
- * (`.claude/rules/testing.md`): route tests are not colocated with route.ts.
+ * (`.agents/rules/testing.md`): route tests are not colocated with route.ts.
  */
 
 import { describe, it, expect } from "vitest";

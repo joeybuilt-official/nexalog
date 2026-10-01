@@ -3,7 +3,7 @@
  * Endpoint tests for the take-proposal review API — the write path that did not
  * exist, which is why 170 proposals sat pending with zero ever promoted.
  *
- * What these assert, per `.claude/rules/testing.md` → "What an endpoint test
+ * What these assert, per `.agents/rules/testing.md` → "What an endpoint test
  * asserts":
  *
  *   - success with the exact response shape, for both the list and the decision;

@@ -3,7 +3,7 @@
 /**
  * EmbeddedIntelligenceAdapter — the standalone baseline behind
  * `IntelligencePort`: any OpenAI-compatible `/chat/completions` endpoint,
- * reached with raw `fetch` and NO provider SDK (`.claude/rules/ai-features.md`;
+ * reached with raw `fetch` and NO provider SDK (`.agents/rules/ai-features.md`;
  * `openai` / `@anthropic-ai/sdk` / `ai` are banned dependencies). The app is
  * fully functional with zero siblings installed; Plexo, when present, is a
  * federation bonus that registers behind the same port (ADR-0014/0017).
@@ -13,7 +13,7 @@
  * own types. It never leaks `choices`/`message` upward, and it never throws a
  * vendor error: every failure is the port's typed `IntelligenceError`.
  *
- * Timeout: every outbound call gets an explicit ceiling (`.claude/rules/
+ * Timeout: every outbound call gets an explicit ceiling (`.agents/rules/
  * error-handling.md`). The caller's `signal` is honored too, so an aborted
  * request aborts the fetch rather than leaving it to burn the endpoint.
  */

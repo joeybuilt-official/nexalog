@@ -182,7 +182,7 @@ class CaptureInboxPage {
 }
 
 /// A failed decision, typed by the server's STABLE `code` — never by message
-/// text (`.claude/rules/api-design.md`: clients branch on the code).
+/// text (`.agents/rules/api-design.md`: clients branch on the code).
 class CaptureDecisionError implements Exception {
   const CaptureDecisionError({
     required this.code,

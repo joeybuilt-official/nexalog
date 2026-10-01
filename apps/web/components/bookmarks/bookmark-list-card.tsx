@@ -21,7 +21,7 @@
  *   ␣   = toggle selection (set-of-selected-ids — bulk actions
  *          deferred to a follow-up commit)
  *
- * Color discipline (CLAUDE.md global rule + nexalog AGENTS.md):
+ * Color discipline (nexalog AGENTS.md):
  *   text-foreground / text-muted-foreground / bg-card / border-border.
  *   Copper (--primary, --ring) appears only in focus and selection
  *   ring states, never as a content meta label.

@@ -32,7 +32,7 @@ trap 'rm -rf "$WORK"' EXIT
 # a failure. Detect the situation and SKIP loudly instead — a soft gate may skip, but never silently.
 # PANOPLY_KIT_ROOT may point at a real template checkout to run it from elsewhere.
 _is_template() {  # _is_template <dir> — same heuristic the doctor uses for self-detection
-  [ -f "$1/scripts/init-template-repo.sh" ] && [ -f "$1/.claude/commands/adapt-claude-setup.md" ]
+  [ -f "$1/scripts/init-template-repo.sh" ] && [ -f "$1/.agents/commands/adapt-agents-setup.md" ]
 }
 if [ -n "${PANOPLY_KIT_ROOT:-}" ] && _is_template "$PANOPLY_KIT_ROOT"; then
   KIT="$PANOPLY_KIT_ROOT"; DOC="$KIT/scripts/panoply.sh"
@@ -67,11 +67,11 @@ _make_adopted() {
   _p="$1"
   cp "$KIT/AGENTS.md" "$_p/AGENTS.md"
   sed -i 's/{{PROJECT_NAME}}/fixture/g' "$_p/AGENTS.md"
-  mkdir -p "$_p/docs/claude" "$_p/.claude/rules" "$_p/scripts"
-  cp "$KIT/docs/claude/roadmap.md" "$_p/docs/claude/roadmap.md" 2>/dev/null || printf '# roadmap\n' > "$_p/docs/claude/roadmap.md"
+  mkdir -p "$_p/docs/agents" "$_p/.agents/rules" "$_p/scripts"
+  cp "$KIT/docs/agents/roadmap.md" "$_p/docs/agents/roadmap.md" 2>/dev/null || printf '# roadmap\n' > "$_p/docs/agents/roadmap.md"
   # copy modules and strip every {{TOKEN}} so the fixture is genuinely adapted
-  for _m in "$KIT"/.claude/rules/*.md; do
-    b="$(basename "$_m")"; sed 's/{{[A-Z_][A-Z0-9_]*}}/fixture/g' "$_m" > "$_p/.claude/rules/$b"
+  for _m in "$KIT"/.agents/rules/*.md; do
+    b="$(basename "$_m")"; sed 's/{{[A-Z_][A-Z0-9_]*}}/fixture/g' "$_m" > "$_p/.agents/rules/$b"
   done
   cp "$KIT/scripts/sync-agents.sh" "$_p/scripts/sync-agents.sh"
   ( cd "$_p" && PANOPLY_SELF=0 sh scripts/sync-agents.sh ) >/dev/null 2>&1
@@ -98,7 +98,9 @@ sed -i 's/^kit_version: .*/kit_version: v0.0.1/' "$R/.panoply-version"
                                     assert_exit "stale (old version)"    12 "$R"
 # --- case 6: drifted mirrors -------------------------------------------------------------------
 R="$(_new_repo drifted)"; _make_adopted "$R"
-printf '\nhand edit that bypasses the generator\n' >> "$R/GEMINI.md"
+# Generate at least one tool-native mirror so --check has something to compare, then corrupt it.
+( cd "$R" && PANOPLY_SELF=0 sh scripts/sync-agents.sh ) >/dev/null 2>&1
+printf '\nhand edit that bypasses the generator\n' >> "$R/CONVENTIONS.md"
                                     assert_exit "drifted mirrors"        14 "$R"
 # --- case 7: current ---------------------------------------------------------------------------
 R="$(_new_repo current)"; _make_adopted "$R"

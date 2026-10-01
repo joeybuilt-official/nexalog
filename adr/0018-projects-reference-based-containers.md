@@ -13,7 +13,7 @@
 - **Date**: 2026-09-25
 - **Phase**: Projects Phase 2 (design + ADR)
 - **Owner**: operator (design drafted by agent; the approval is the operator's)
-- **Supersedes**: `docs/claude/platform/projects/adr/0001-nexalog-projects.md`
+- **Supersedes**: `docs/agents/platform/projects/adr/0001-nexalog-projects.md`
   (the V1 design). ADR-0001's D1–D5 were approved and built against the **V1**
   app; that build is not in this repo (§Reconciliation). This ADR re-decides the
   design against V2's architecture rather than porting the V1 one.
@@ -21,7 +21,7 @@
   `lib/plexo.ts` client ADR-0001's D3 was built on), ADR-0017 (retires the
   Plexo-exclusive rule), ADR-0009 (export format — this design is what keeps
   Projects inside the exit door)
-- **Companion**: `docs/claude/platform/projects/design.md` (the full design,
+- **Companion**: `docs/agents/platform/projects/design.md` (the full design,
   including the reconciliation evidence and phasing)
 
 ## Context
@@ -246,7 +246,7 @@ Established from the repo, on `origin/main` @ `c20238a`:
   (`refactor(phase-1): … §1.7 deletions complete`), which removed
   `app/api/projects/{route.ts,[id]/route.ts,[id]/items/route.ts,[id]/brainstorm/route.ts}`
   plus the candidates pair, and `app/(app)/app/projects/{page.tsx,projects-client.tsx,[id]/*}`,
-  along with `lib/plexo.ts`. `docs/claude/platform/projects/plan.md` §Phase 3–5
+  along with `lib/plexo.ts`. `docs/agents/platform/projects/plan.md` §Phase 3–5
   describe files (`lib/projects/`, `app/api/projects/*`) that do not exist here.
 - **What survives** is a mix of dead and live-linked fragments, not a shipped
   feature:

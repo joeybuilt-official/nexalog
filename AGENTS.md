@@ -1,17 +1,17 @@
 # AGENTS.md — Nexalog
 
 Canonical, provider-neutral instructions for ANY coding agent or LLM working in this repo
-(Claude Code, OpenCode, OpenAI Codex, Cursor, Gemini, GitHub Copilot, Windsurf, Cline, aider, …).
-If you are Claude Code, `CLAUDE.md` imports this file — read it as your hub.
+(any agent or LLM platform).
+If your tool reads a native file that imports this one, read this file as your hub.
 
 The tool-native files (`.cursor/rules/`, `.clinerules/`, `.windsurf/rules/`,
 `.github/copilot-instructions.md`, `GEMINI.md`, `CONVENTIONS.md`) are **generated** from this file
-plus `.claude/rules/*.md` by `scripts/sync-agents.sh`. Never hand-edit a mirror; edit this file or a
+plus `.agents/rules/*.md` by `scripts/sync-agents.sh`. Never hand-edit a mirror; edit this file or a
 rule module and re-run `sh scripts/sync-agents.sh` (`--check` is the staleness gate).
 
 The complete ruleset is **inlined at the bottom of this file** between the `PANOPLY:RULES` markers.
-That is deliberate, not duplication: most harnesses do **not** follow `@.claude/rules` imports, so a
-pointer-only hub leaves OpenCode, Codex, Cursor, and Copilot working blind on the rules that exist to
+That is deliberate, not duplication: most harnesses do **not** follow `@`-imports, so a
+pointer-only hub leaves those tools working blind on the rules that exist to
 prevent drift. Inlining is what makes the contract provider-neutral.
 
 <!-- MIRROR:start — this block is copied verbatim into every tool-native file by scripts/sync-agents.sh. Edit here only; it is the "if you read nothing else" contract for tools that do not open AGENTS.md. -->
@@ -19,11 +19,11 @@ prevent drift. Inlining is what makes the contract provider-neutral.
 
 **Before writing anything, read this file fully.** The short version:
 
-- **Read, in order:** `docs/claude/roadmap.md` (the plan) → `docs/claude/in-progress.md` (the queue +
-  the exact next step) → `docs/claude/worklog.md` (the running worklog — this repo has **no**
+- **Read, in order:** `docs/agents/roadmap.md` (the plan) → `docs/agents/in-progress.md` (the queue +
+  the exact next step) → `docs/agents/worklog.md` (the running worklog — this repo has **no**
   `CHANGELOG.md`/`HISTORY.md`, so `worklog.md` IS the log; one running log, never two) → this file
-  (stack + commands) → the `.claude/rules/` module for what you touch.
-- **Carry existing work forward.** `docs/claude/in-progress.d/<slug>.md` fragments are the single
+  (stack + commands) → the `.agents/rules/` module for what you touch.
+- **Carry existing work forward.** `docs/agents/in-progress.d/<slug>.md` fragments are the single
   backlog, shared by every harness. The top of `in-progress.md` is the live task with its next step —
   continue it; do NOT open a parallel track for work already queued. Root-level `TASKS.md` /
   `PROGRESS.md` / `HANDOFF.md` are **machine-local Phalanx loop state**, not the backlog — never plan
@@ -31,8 +31,8 @@ prevent drift. Inlining is what makes the contract provider-neutral.
 - **Keep the plan and worklog current in the SAME change as the code.** Shipped-but-unlogged = not
   done. `scripts/check-docs.sh` is the landing gate; `--since REF` checks every commit individually,
   so **amend, don't follow up**.
-- **Plans live in the repo, never at workspace root.** A plan is a row in `docs/claude/roadmap.md`,
-  with depth in `docs/claude/<area>/<slug>/plan.md`. ADRs live in `adr/NNNN-slug.md`.
+- **Plans live in the repo, never at workspace root.** A plan is a row in `docs/agents/roadmap.md`,
+  with depth in `docs/agents/<area>/<slug>/plan.md`. ADRs live in `adr/NNNN-slug.md`.
 - **Clean Architecture is mandatory.** Dependencies point inward only; business rules import no
   framework / ORM / HTTP client / vendor SDK; external concerns sit behind a **port** with an adapter
   at the edge. `lib/intelligence/` (IntelligencePort + embedded/Plexo adapters) is the reference
@@ -44,8 +44,8 @@ prevent drift. Inlining is what makes the contract provider-neutral.
 ### First touch — the kit is already adopted here; keep it current before you modify anything
 
 **Nexalog carries the Panoply kit. Verify it before you write — do not assume, and do not work around
-a stale copy.** The kit's own machine surface is a shell script any harness can run (Hermes, Codex,
-Cursor, CI — not just Claude):
+a stale copy.** The kit's own machine surface is a shell script any harness can run (Hermes, any agent,
+any agent, CI — not just the agent):
 
     sh scripts/panoply.sh check          # 0 current · 10 not applied · 11 partial · 12 stale
                                          # 13 unadapted (placeholders left) · 14 mirrors drifted
@@ -57,7 +57,7 @@ A non-zero result means **stop and fix the kit state first — it IS the first b
     sh scripts/panoply.sh check          # must exit 0 before other work begins
 
 Do the judgement half the checklist names (fill every `{{TOKEN}}` from this repo's OWN manifests,
-prune the `MODULE:` blocks that do not apply, merge — never overwrite — `CLAUDE.md`/`AGENTS.md`).
+prune the `MODULE:` blocks that do not apply, merge — never overwrite — `AGENTS.md`).
 A half-applied kit fails its own doc gate and looks like a doc bug, so finish it or revert it; do not
 leave it partial. `PANOPLY_OFF=1` exists for a deliberate exception — say plainly that you used it, so
 the choice is reviewed rather than assumed. **Never stamp a version without the regeneration it
@@ -65,14 +65,12 @@ implies**: `.panoply-version` is only true once `sync-agents.sh` has run over th
 
 ### MUST NOT — hard guardrails
 
-**What is actually enforced, honestly:** a `.claude/settings.json` permission gate now exists and
-refuses the destructive commands below (`pnpm db:push` first among them) — but it binds **Claude Code
-only**. Every other harness that reads this block (Codex, Cursor, Copilot, Gemini, Windsurf, Cline,
-aider, OpenCode) gets these guardrails as **prose**, and CI (`.github/workflows/verify.yml`) runs the
+**What is actually enforced, honestly:** a tool-specific permission file can refuse the destructive commands below (`pnpm db:push` first among them) — but it binds **only the tool that reads it**. Every other harness that reads this block (any agent, any agent, any agent, the agent, the agent, the agent,
+the agent, the agent) gets these guardrails as **prose**, and CI (`.github/workflows/verify.yml`) runs the
 typecheck / lint / test / build and the docs + mirror gates on every PR. As of 2026-09-26 the repo is
 public and `verify` **is a required check on `main`** — branch protection is live (admins enforced,
 no force-push, no deletion), so a red `verify` now actually blocks a merge. The permission gate still
-binds Claude Code only: CI is a merge gate, not a sandbox, and every other harness gets these rules as
+binds the agent only: CI is a merge gate, not a sandbox, and every other harness gets these rules as
 prose. One hole closed, not all of them — so these
 guardrails are doctrine, and they are absolute:
 
@@ -201,39 +199,38 @@ instrumentation.ts         # Server boot hook (calls registerWithPlexoCore)
 - **Bookmark tags** — flat tagging in `nexalog.bookmark_tags` + `nexalog.bookmark_tag_assignments`
 - **Workspaces** — `nexalog.workspaces` (one active workspace per user in v1)
 - **Voice notes** — `nexalog.voice_notes` (schema exists; transcription via Plexo Deepgram when PAX-exposed)
-- **Imported conversations** — Claude.ai export conversations land as brain pages `notes/<slug>.md` (`type: note`, dedupe on the frontmatter `claude_conversation_uuid`); the run is ledgered in `nexalog.imports`. Every page a writer here creates carries a TOP-LEVEL `date` (the content's own creation instant — never the run time), because that is the only date key the brain's index reads: a date under `claude_created_at` / `anytype_created_at` / `nexalog.captured_at` alone is provenance, invisible to the index, and the page would be filed under its import time
+- **Imported conversations** — the agent.ai export conversations land as brain pages `notes/<slug>.md` (`type: note`, dedupe on the frontmatter `claude_conversation_uuid`); the run is ledgered in `nexalog.imports`. Every page a writer here creates carries a TOP-LEVEL `date` (the content's own creation instant — never the run time), because that is the only date key the brain's index reads: a date under `claude_created_at` / `anytype_created_at` / `nexalog.captured_at` alone is provenance, invisible to the index, and the page would be filed under its import time
 
 ## Where everything lives
 
 | You need | Read |
 |---|---|
-| The overall plan (initiatives) | `docs/claude/roadmap.md` |
-| What to work on now | `docs/claude/in-progress.md` (+ `docs/claude/in-progress.d/<slug>.md` fragments) |
-| What landed recently | `docs/claude/worklog.md` |
-| What already exists | `docs/claude/completed-features.md` |
-| Decisions & gotchas | `docs/claude/architecture.md`, `docs/claude/key-patterns.md` |
+| The overall plan (initiatives) | `docs/agents/roadmap.md` |
+| What to work on now | `docs/agents/in-progress.md` (+ `docs/agents/in-progress.d/<slug>.md` fragments) |
+| What landed recently | `docs/agents/worklog.md` |
+| What already exists | `docs/agents/completed-features.md` |
+| Decisions & gotchas | `docs/agents/architecture.md`, `docs/agents/key-patterns.md` |
 | Architecture decisions (long form) | `adr/NNNN-slug.md` |
-| Infrastructure | `docs/claude/infrastructure.md` |
-| How to work (process) | `.claude/rules/workflow.md`, `quality-bar.md`, `git-workflow.md`, `documentation.md` |
-| Architecture premise + this repo's layer map | `.claude/rules/clean-architecture.md` |
-| Code / tests / errors | `.claude/rules/code-style.md`, `testing.md`, `error-handling.md` |
-| Data & interfaces | `.claude/rules/database.md`, `data-modeling.md`, `api-design.md` |
-| Frontend / design | `.claude/rules/frontend.md`, `design-system.md` |
-| AI / intelligence | `.claude/rules/ai-features.md` |
+| Infrastructure | `docs/agents/infrastructure.md` |
+| How to work (process) | `.agents/rules/workflow.md`, `quality-bar.md`, `git-workflow.md`, `documentation.md` |
+| Architecture premise + this repo's layer map | `.agents/rules/clean-architecture.md` |
+| Code / tests / errors | `.agents/rules/code-style.md`, `testing.md`, `error-handling.md` |
+| Data & interfaces | `.agents/rules/database.md`, `data-modeling.md`, `api-design.md` |
+| Frontend / design | `.agents/rules/frontend.md`, `design-system.md` |
+| AI / intelligence | `.agents/rules/ai-features.md` |
 
-Team-shared context lives in `docs/claude/` and is committed to git. Personal preferences and
-per-user workflow rules stay in local `~/.claude/` memory, never here.
+Team-shared context lives in `docs/agents/` and is committed to git. Personal preferences and
+per-user workflow rules stay in local `~/.<tool>/` memory, never here.
 
 ## Enforcement — the honest version
 
-- **A gate exists, and it is narrower than it sounds: it binds Claude Code only.** `.claude/settings.json`
+- **A gate exists, and it is narrower than it sounds: it binds only the tool that reads it.** A tool-specific permission file
   (added 2026-09-25; deny list copied verbatim from the sibling `fylo` gate, plus this repo's
   db-destruction and deploy denies: `pnpm db:push`, `pnpm drizzle-kit push`, `psql`,
-  `docker compose … nexalog … up`) mechanically refuses those commands **in a Claude Code session in
+  `docker compose … nexalog … up`) mechanically refuses those commands **in a agent tool session in
   this repo** — that closes the biggest hole, since the #1 MUST NOT above is no longer prose for the
-  one harness that reads the file. It is one harness: Cursor, Copilot, Codex, Gemini, Windsurf, Cline,
-  aider and OpenCode never read `.claude/settings.json`, so for them the MUST NOT list is still
-  **prose**. The gate is also not a sandbox — it constrains the agent's tool calls, not the shell.
+  one harness that reads the file. It is one harness: any agent, any agent, any agent, the agent, the agent, the agent,
+  other agents never read it, so for them the MUST NOT list is still **prose**. The gate is also not a sandbox — it constrains the agent's tool calls, not the shell.
 - **Branch protection is live as of 2026-09-26.** `.github/workflows/verify.yml` (the `verify` job:
   frozen-lockfile install, `sync-agents.sh --check`, the `check-docs.sh` landing gate,
   `pnpm typecheck / lint / test / build`) runs on every PR and push to `main`, and `verify` is a
@@ -242,7 +239,7 @@ per-user workflow rules stay in local `~/.claude/` memory, never here.
   `verify.yml` and be checked by the edited version; protection gates git merges, not shells
   (`pnpm db:push` remains ungated); and with `enforce_admins: true` a stalled Actions report blocks a
   merge until the rule is edited.
-- For every harness other than Claude Code — and for a bad merge in general — the guardrails above
+- For every harness other than the agent — and for a bad merge in general — the guardrails above
   remain **doc-level doctrine only**. They bind you by agreement, not by a gate. Treat that as a reason
   for more care, not less.
 - `scripts/sync-agents.sh --check` and `scripts/check-docs.sh` are now wired into the `verify`
@@ -251,16 +248,16 @@ per-user workflow rules stay in local `~/.claude/` memory, never here.
   (operator; `scripts/init-repo-protection.sh` does it once someone with admin auth runs it). Keep
   running both scripts by hand before every commit regardless — CI reports after the fact.
 - `scripts/check-expert-review.sh` is shipped but **not viable yet**: it wants a `checklist.md` with
-  pending items under `docs/claude/`, and nexalog keeps its checklists at the repo root instead.
+  pending items under `docs/agents/`, and nexalog keeps its checklists at the repo root instead.
 
 ---
 
-<!-- PANOPLY:RULES:BEGIN — generated from .claude/rules/*.md by scripts/sync-agents.sh. Edit the modules, not here. -->
+<!-- PANOPLY:RULES:BEGIN — generated from .agents/rules/*.md by scripts/sync-agents.sh. Edit the modules, not here. -->
 
 # Clean Architecture
 
 > **Applies when:** always — this is the premise of every coding effort in this project, and the module every other rules module inherits from.
-> **Delete this file (and its `@` import in `CLAUDE.md`) if:** never. Adapt the directory map below to the project instead.
+> **Delete this file (and its `@` import in the generated agent hub) if:** never. Adapt the directory map below to the project instead.
 
 ## The premise
 
@@ -373,7 +370,7 @@ may never run it, so CI is the plane that actually holds.
   **Nexalog sits on the second half of that ramp:** the `error` rules are blocking and currently clean;
   the nine `web-lib-no-direct-db` call sites above are the report-only remainder, and each one is a
   candidate to move behind a port — never a reason to relax the rule.
-- **Wiring:** the kit NAMES this gate and CHECKS for it (`/audit-claude-setup` Check 6); it does not
+- **Wiring:** the kit NAMES this gate and CHECKS for it (`/audit-agents-setup` Check 6); it does not
   generate a layout-coupled config for you. Use your stack's tool (or the `arch-enforce` skill if you
   have it) to create the config from the filled layer map, then set the command to its invocation.
   That is already done here — the config exists and the wrapper is the invocation. **Never replace the
@@ -401,14 +398,14 @@ Run against any diff. Each item is pointable: a reviewer can highlight a line an
 # Workflow: Change Approval & Planning
 
 > **Applies when:** always — this is the baseline collaboration protocol for every project.
-> **Delete this file (and its `@` import in CLAUDE.md) if:** never. If you disagree with a rule, edit it; do not delete the module.
+> **Delete this file (and its `@` import in the generated agent hub) if:** never. If you disagree with a rule, edit it; do not delete the module.
 
 ## Pre-flight — before any proposal
 
 You cannot propose a change to a repo whose state you have not read. Before planning anything:
 
 - `git fetch --prune`, then survey branches, worktrees, and open PRs (`git branch -a`, `git worktree list`, `gh pr list --state open`).
-- Read the central plan doc (`docs/claude/roadmap.md` in kit repos; the repo's one plan doc where the adapt has set a lighter one), the running worklog, and only then the code you are about to change.
+- Read the central plan doc (`docs/agents/roadmap.md` in kit repos; the repo's one plan doc where the adapt has set a lighter one), the running worklog, and only then the code you are about to change.
 - **Carry forward in-flight work** — continue the queued task or the open PR; never open a parallel track for work already in progress. (Full mechanics: `git-workflow.md` → Pre-flight.)
 
 ## Change Approval
@@ -438,14 +435,14 @@ This carve-out is itself a setting: a project that chose the **strict** protocol
 
 ## Planning Workflow
 
-- **A plan is a roadmap row first, never a new directory.** The moment you start work, add a row to the project's `docs/claude/roadmap.md` (Now/Next/Later) — in the same session, even if that row is the only artifact and the plan dies the same day. A dead roadmap row beats a lost plan. Never create a top-level `<name>-plan/`, `<name>-specs/`, or `scratch_*` plan directory; that scatter is exactly what this rule eliminates. Deeper detail goes in `docs/claude/<area>/<slug>/plan.md` inside the repo, linked from the row.
-- **The plan doc is the SINGLE place every agent reads and edits plans.** A kit repo's plan home is the `docs/claude/` spine: `roadmap.md` (the single canonical plan doc) with per-task fragments under `docs/claude/in-progress.d/` or area plan docs linked from it. A project too small for that spine may keep ONE lightweight `docs/PLAN.md` (a status table + the worklog) as its plan home — same rule, fewer pieces. What is never the plan home: a root-level `PLAN.md` (that is the stray `check-plan-home.sh` exists to reject), a second parallel plan doc, and **GitHub Issues** — an issue is a note that gets folded into the plan doc, never the doc itself. Before planning anything, read it; when you plan anything, write there. `scripts/check-plan-home.sh` enforces this in CI and pre-commit (`PLAN_HOME_ALLOW` for a legitimate exception, `PLAN_HOME_OFF=1` while adopting a repo with a backlog).
+- **A plan is a roadmap row first, never a new directory.** The moment you start work, add a row to the project's `docs/agents/roadmap.md` (Now/Next/Later) — in the same session, even if that row is the only artifact and the plan dies the same day. A dead roadmap row beats a lost plan. Never create a top-level `<name>-plan/`, `<name>-specs/`, or `scratch_*` plan directory; that scatter is exactly what this rule eliminates. Deeper detail goes in `docs/agents/<area>/<slug>/plan.md` inside the repo, linked from the row.
+- **The plan doc is the SINGLE place every agent reads and edits plans.** A kit repo's plan home is the `docs/agents/` spine: `roadmap.md` (the single canonical plan doc) with per-task fragments under `docs/agents/in-progress.d/` or area plan docs linked from it. A project too small for that spine may keep ONE lightweight `docs/PLAN.md` (a status table + the worklog) as its plan home — same rule, fewer pieces. What is never the plan home: a root-level `PLAN.md` (that is the stray `check-plan-home.sh` exists to reject), a second parallel plan doc, and **GitHub Issues** — an issue is a note that gets folded into the plan doc, never the doc itself. Before planning anything, read it; when you plan anything, write there. `scripts/check-plan-home.sh` enforces this in CI and pre-commit (`PLAN_HOME_ALLOW` for a legitimate exception, `PLAN_HOME_OFF=1` while adopting a repo with a backlog).
 
 - **Enter plan mode before any non-trivial or multi-step work.** Any feature, milestone, or task spanning more than a couple of files starts with a plan — use the planning tool, not an informal chat summary, so the plan is an artifact rather than a paragraph that scrolls away. Present it to the owner (plain language, above) and let the plan — not the chat memory — be what was approved.
-- **ALWAYS persist the plan to a file under `docs/claude/`.** A plan that exists only in chat context dies at the next compaction, and you will silently resume with a different plan than the one that was approved. The file is the source of truth; the chat is not.
-  - Copy `docs/claude/_templates/plan.md` as the starting point.
-  - Write it into the relevant area folder, not flat in `docs/claude/` — e.g. `docs/claude/<area>/<feature>/plan.md`. See `docs/claude/_templates/feature-area/README.md` for the folder convention.
-  - Link the new plan from `docs/claude/in-progress.md` in the same step, or nobody will find it.
+- **ALWAYS persist the plan to a file under `docs/agents/`.** A plan that exists only in chat context dies at the next compaction, and you will silently resume with a different plan than the one that was approved. The file is the source of truth; the chat is not.
+  - Copy `docs/agents/_templates/plan.md` as the starting point.
+  - Write it into the relevant area folder, not flat in `docs/agents/` — e.g. `docs/agents/<area>/<feature>/plan.md`. See `docs/agents/_templates/feature-area/README.md` for the folder convention.
+  - Link the new plan from `docs/agents/in-progress.md` in the same step, or nobody will find it.
 - **When a milestone splits into sub-milestones, do not overwrite the parent plan.** Either nest the sub-milestones inline under their parent, or create a sibling file in the same folder and link to it from the parent. The parent plan must stay readable as a high-level overview — that overview is what a future session reads first to reorient, and flattening it into task-level detail destroys it.
 - **Re-read the plan file at the start of each milestone.** Do this even if you "remember" the plan; after a compaction your memory of it is a summary of a summary.
 - **Update the plan as work completes** — check off finished milestones, and record deviations inline with a `> **Build note:**` line explaining what you found and why the approach changed. Discoveries made during the build are the most valuable content in the file and the first thing lost if you do not write them down.
@@ -463,7 +460,7 @@ you propose it.
 - **An agent's self-report is not review evidence.** "Tests pass," "done," and "it works" from the agent that wrote the change verify nothing — authorship and evidence must be independent. Non-trivial work is re-reviewed independently (by a second reviewer or a review agent reading only the diff), and the gate below exists because that requirement is easy to claim and easy to skip.
 - **Four default personas must be considered:** Security, Performance, Maintainability, UX. Domain-specific personas may be added per project.
 - **Review evidence required (checked by `scripts/check-expert-review.sh` in CI):**
-  1. `plan.md` exists for the feature area (persisted under `docs/claude/<area>/...`).
+  1. `plan.md` exists for the feature area (persisted under `docs/agents/<area>/...`).
   2. `checklist.md` has ≥1 unchecked item at PR open (proves planning happened).
   3. `adr.md` has a new section since the PR base branch (proves architectural decision recorded).
   4. PR description contains sign-off from ≥2 named personas (e.g., `Security: ✓`, `Performance: LGTM`).
@@ -475,7 +472,7 @@ you propose it.
 # Long-Term Quality Bar
 
 > **Applies when:** always — before proposing any approach, and before any structural decision that is hard to reverse.
-> **Delete this file (and its `@` import in `CLAUDE.md`) if:** never. This is the rule that stops the easy path from winning by default.
+> **Delete this file (and its `@` import in the generated agent hub) if:** never. This is the rule that stops the easy path from winning by default.
 
 ## The self-check
 
@@ -547,7 +544,7 @@ It is not a licence to gold-plate. It does not authorize building for imagined r
 # Git Workflow: Commits, PRs, Branching
 
 > **Applies when:** the project is version-controlled with git and changes land through pull requests.
-> **Delete this file (and its `@` import in `CLAUDE.md`) if:** the project is not in git, or has no PR/review process at all.
+> **Delete this file (and its `@` import in the generated agent hub) if:** the project is not in git, or has no PR/review process at all.
 
 ## Pre-flight — before any work or planning (always first)
 
@@ -555,7 +552,7 @@ No agent plans or writes code before knowing the repo's current state. In order:
 
 - **`git fetch --prune` first.** Stale refs lie about what exists: a branch deleted on the remote still looks live locally, and someone else's new branch is invisible until fetched.
 - **Then survey the repo:** `git status --porcelain` (whose work is in the tree?), `git branch -a` and `git worktree list` (what branches and worktrees exist), and `gh pr list --state open` (what is already in flight).
-- **Then read, in order: the central plan doc (the roadmap under `docs/claude/`), the running worklog, then the code you are about to change.** Planning from memory of a repo you know is planning from a repo that has since moved.
+- **Then read, in order: the central plan doc (the roadmap under `docs/agents/`), the running worklog, then the code you are about to change.** Planning from memory of a repo you know is planning from a repo that has since moved.
 - **Carry forward in-flight work.** If the task is already queued in the plan doc, or an open branch/PR already covers it, continue that work — never open a parallel track for something already in progress. One open PR per repo at a time (see Merging), so new work waits behind what is open.
 
 ## Plan first — presented before code
@@ -632,8 +629,7 @@ A branch showing commits "ahead" of `main` is *not* proof it holds unmerged work
 
 - **Verify commit identity before the first commit in a fresh clone** — see "Commits" above for the identity this repo pins. Set it repo-locally, never `--global`.
 - **Never put a credential in the remote URL, and never commit a secret.** Keep secrets in env or a secret store; keep git auth in a credential helper (`git config credential.helper`, `~/.git-credentials`, or the OS keychain) so the remote stays `https://github.com/<owner>/<repo>.git` — never `https://<user>:<token>@github.com/...`. A token in the URL leaks through `git remote -v`, shell history, CI logs, and the reflog, and removing it does not un-expose it: if one was ever embedded, **rotate it.** `.env.example` is tracked here; `.env` and `.env.*` are not.
-- **The `.claude/settings.json` deny-list binds only Claude Code.** It does nothing to a Cursor,
-  Codex, Copilot, Windsurf, Cline, or aider agent. The tool-agnostic guardrail is **server-side**:
+- **A tool-specific permission file binds only that tool.** It does nothing for other agents. The tool-agnostic guardrail is **server-side**:
   branch protection on `main` (blocks force-push and direct pushes no matter who typed
   them) plus **required status checks** (`.github/workflows/verify.yml`). Both are already on in this
   repo (since 2026-09-26) — that server-side pair, not the `MUST NOT` prose in `AGENTS.md`, is what
@@ -641,7 +637,7 @@ A branch showing commits "ahead" of `main` is *not* proof it holds unmerged work
 
 ## Pull requests
 
-- The PR description states what changed and why, and links the plan doc under `docs/claude/` when there is one.
+- The PR description states what changed and why, and links the plan doc under `docs/agents/` when there is one.
 - Keep the PR scoped to the approved change. Unrelated drive-by fixes belong in their own PR, where they can be reviewed on their own merits.
 - Never merge your own PR past a failing CI job by re-running it until it goes green — a flaky test is a bug report, not an obstacle.
 
@@ -650,28 +646,28 @@ A branch showing commits "ahead" of `main` is *not* proof it holds unmerged work
 # Documentation & Memory
 
 > **Applies when:** always — this defines where project knowledge lives and how it survives context compaction.
-> **Delete this file (and its `@` import in `CLAUDE.md`) if:** never. If the project keeps its knowledge base elsewhere, retarget the paths rather than dropping the module.
+> **Delete this file (and its `@` import in the generated agent hub) if:** never. If the project keeps its knowledge base elsewhere, retarget the paths rather than dropping the module.
 
 ## Two tiers of memory
 
-- **`docs/claude/` — team-shared, committed to git.** Facts about the project that any contributor or agent needs: what is being built now, what shipped, why the architecture is the way it is, and the patterns and gotchas that cost someone a day to learn. If a teammate would benefit, it goes here.
-- **`~/.claude/` — personal, never committed.** Individual preferences, machine-local setup, per-user workflow habits. Keep it out of `docs/claude/`, because personal preference presented as project doctrine misleads everyone else on the team.
+- **`docs/agents/` — team-shared, committed to git.** Facts about the project that any contributor or agent needs: what is being built now, what shipped, why the architecture is the way it is, and the patterns and gotchas that cost someone a day to learn. If a teammate would benefit, it goes here.
+- **Personal agent config (`~/.<tool>/`) — personal, never committed.** Individual preferences, machine-local setup, per-user workflow habits. Keep it out of `docs/agents/`, because personal preference presented as project doctrine misleads everyone else on the team.
 
 The distinction is not about secrecy, it is about durability: committed docs are versioned alongside the code they describe, so they can be reviewed, corrected, and blamed.
 
 ## Read order (start here, in this order)
 
-1. **`docs/claude/in-progress.d/`** — the queue, ONE FILE PER TASK, each carrying that task's status and its exact next step. Always read this first; it tells you what the current work actually is, which is the one thing a fresh context window cannot infer from the code. `docs/claude/in-progress.md` is a GENERATED table view of the directory — read it if the repo renders one, but never edit it.
-   > **Nexalog is mid-migration on this.** The fragment set under `docs/claude/in-progress.d/` is the durable record, but `in-progress.md` is still tracked and hand-maintained — the Phalanx reconcile sweep has not run here and the loop still reads its own machine-local state. Treat them as two views of one queue and keep them consistent until the sweep lands; do **not** delete or untrack `in-progress.md`.
-2. **`docs/claude/architecture.md`** — the decisions and their reasoning, so you extend the design instead of re-litigating it.
-3. **`docs/claude/key-patterns.md`** — conventions, gotchas, and testing practice, so your code matches what is already there.
-4. **`docs/claude/infrastructure.md`** — deploy pipeline, hosting, data stores, secrets, background jobs. Read before touching anything that runs outside the dev machine.
-5. **`docs/claude/completed-features.md`** — what already exists, so you do not rebuild it.
-6. **The relevant area folder** (e.g. `docs/claude/<area>/…`) — active plans and research for the feature you are working on.
+1. **`docs/agents/in-progress.d/`** — the queue, ONE FILE PER TASK, each carrying that task's status and its exact next step. Always read this first; it tells you what the current work actually is, which is the one thing a fresh context window cannot infer from the code. `docs/agents/in-progress.md` is a GENERATED table view of the directory — read it if the repo renders one, but never edit it.
+   > **Nexalog is mid-migration on this.** The fragment set under `docs/agents/in-progress.d/` is the durable record, but `in-progress.md` is still tracked and hand-maintained — the Phalanx reconcile sweep has not run here and the loop still reads its own machine-local state. Treat them as two views of one queue and keep them consistent until the sweep lands; do **not** delete or untrack `in-progress.md`.
+2. **`docs/agents/architecture.md`** — the decisions and their reasoning, so you extend the design instead of re-litigating it.
+3. **`docs/agents/key-patterns.md`** — conventions, gotchas, and testing practice, so your code matches what is already there.
+4. **`docs/agents/infrastructure.md`** — deploy pipeline, hosting, data stores, secrets, background jobs. Read before touching anything that runs outside the dev machine.
+5. **`docs/agents/completed-features.md`** — what already exists, so you do not rebuild it.
+6. **The relevant area folder** (e.g. `docs/agents/<area>/…`) — active plans and research for the feature you are working on.
 
 Read the specific files that bear on the task, not all of them every time. But never start non-trivial work without at least `in-progress.d/` and the area folder for the thing you are changing.
 
-**Decisions have a long form in this repo.** `docs/claude/architecture.md` is the index; the full record is a numbered ADR at `adr/NNNN-slug.md` — `0001-audit-methodology.md` … `0023-chat-surface-hosted-here-turn-hosted-there.md`. Read the ADR when the index row touches what you are changing; the *why* is there and is not reconstructible from the code.
+**Decisions have a long form in this repo.** `docs/agents/architecture.md` is the index; the full record is a numbered ADR at `adr/NNNN-slug.md` — `0001-audit-methodology.md` … `0023-chat-surface-hosted-here-turn-hosted-there.md`. Read the ADR when the index row touches what you are changing; the *why* is there and is not reconstructible from the code.
 
 ## The always-current plan & worklog
 
@@ -680,38 +676,38 @@ drifts. This is the anti-redundancy contract — keep to it and the logs cannot 
 
 | Altitude | File | Owns | Granularity |
 |---|---|---|---|
-| Strategic | `docs/claude/roadmap.md` | Initiatives, their band (Now/Next/Later), links down | one initiative |
-| Tactical | `docs/claude/in-progress.d/<slug>.md` (one file per task) | The active queue, blocked, parked, per-task Next step | one task/feature |
-| Continuous | `docs/claude/worklog.md` **or** the repo's `CHANGELOG`/`HISTORY` `[Unreleased]` | What actually landed | one change |
-| Durable | `docs/claude/completed-features.md` | What now exists + its archived plan path | one shipped feature |
+| Strategic | `docs/agents/roadmap.md` | Initiatives, their band (Now/Next/Later), links down | one initiative |
+| Tactical | `docs/agents/in-progress.d/<slug>.md` (one file per task) | The active queue, blocked, parked, per-task Next step | one task/feature |
+| Continuous | `docs/agents/worklog.md` **or** the repo's `CHANGELOG`/`HISTORY` `[Unreleased]` | What actually landed | one change |
+| Durable | `docs/agents/completed-features.md` | What now exists + its archived plan path | one shipped feature |
 
 A fifth surface, `CHANGELOG.md`/`HISTORY.md` release notes, is **user-facing and derived** — curated
 from the worklog at release time, not maintained per-change in parallel. If the repo uses its
 `[Unreleased]` section AS the running worklog, there is no separate `worklog.md` (one running log, never two).
 
-**This repo's worklog target is `docs/claude/worklog.md`.** There is no `CHANGELOG.md` and no
+**This repo's worklog target is `docs/agents/worklog.md`.** There is no `CHANGELOG.md` and no
 `HISTORY.md` here, and do not start one — a second running log splits the record, and `check-docs.sh`
 auto-detects the target, so adding one would silently move the gate.
 
 ### The same-change update contract (every agent, every provider)
 
-In the SAME commit that lands work — Claude, Codex, Cursor, or any other tool:
+In the SAME commit that lands work — the agent, any agent, any agent, or any other tool:
 
 1. **Append one worklog line** (to `worklog.md`, or the `[Unreleased]` section) — what changed, where.
-2. **Write your task's own fragment** — `docs/claude/in-progress.d/<slug>.md` — with its status and its
+2. **Write your task's own fragment** — `docs/agents/in-progress.d/<slug>.md` — with its status and its
    Next-step handoff, or **delete the fragment** on ship — in the SAME PR that ships the code, never
    later (a fragment that outlives its merge is planned against as if still open; leftovers are
    retired from PR state with `phalanx-docs-reconcile.sh`). Never edit a shared table: the queue is one file
    per task precisely so two open PRs cannot collide on it, the same reason the worklog is one file per
-   change. `docs/claude/in-progress.md` is a generated view — do not edit it, and do not commit it.
+   change. `docs/agents/in-progress.md` is a generated view — do not edit it, and do not commit it.
    *(While this repo is mid-migration, item 2's "generated view" half does not hold yet — see Read order
    item 1. Update both, and do not add a new hand-maintained row that contradicts its fragment.)*
 3. **On ship**, additionally: add the `completed-features.md` entry, MOVE the `roadmap.md` initiative
    (to Shipped if this was its last plan), and archive the plan folder.
 4. **On a new or reprioritised initiative**: add or move its `roadmap.md` row.
 
-This contract is plain-markdown, enforced by review and `/audit-claude-setup` — never a Claude-only
-permission gate, so it binds a non-Claude agent exactly as much as a Claude one. It is mirrored into
+This contract is plain-markdown, enforced by review and `/audit-agents-setup` — never a Claude-only
+permission gate, so it binds a non-Claude agent exactly as much as the agent one. It is mirrored into
 `AGENTS.md` so every tool reads it. **Shipped-but-unlogged counts as not done** (see below).
 
 ### The queue is the ONLY backlog — autonomous drivers included
@@ -758,7 +754,7 @@ same commit. It runs in required CI (`scripts/templates/ci-verify.yml`) and the 
 binds every agent in every tool — the provider-neutral floor. The gate enforces **presence**, not
 **correctness**: a vague or wrong worklog line passes. Correctness is a review problem, not an
 automation problem — the honest limit of any git-native kit. The worklog target is auto-detected
-(`CHANGELOG.md`/`HISTORY.md` `[Unreleased]`, else `docs/claude/worklog.md`), overridable via
+(`CHANGELOG.md`/`HISTORY.md` `[Unreleased]`, else `docs/agents/worklog.md`), overridable via
 `DOCS_WORKLOG`.
 
 **Nexalog's copy carries one addition the kit template does not:** a sweep of every tracked file for
@@ -768,10 +764,10 @@ looks for one. Keep it if you ever re-sync the script from the kit.
 
 ## When to write
 
-- **When a plan is made** — persist it to a file under the area folder, from `docs/claude/_templates/plan.md`, and link it from your task's `in-progress.d/` fragment. Plans that live only in chat are erased by compaction.
+- **When a plan is made** — persist it to a file under the area folder, from `docs/agents/_templates/plan.md`, and link it from your task's `in-progress.d/` fragment. Plans that live only in chat are erased by compaction.
 - **During the build, at the moment of discovery** — when reality contradicts the plan, record it inline with a `> **Build note:**` line. Written later, it is written wrong; written never, the next person rediscovers it the expensive way.
 - **When you pause or hand off** — before you stop, write the *exact next action* where the next session looks first: the **Next step** line of your task's `in-progress.d/` fragment, or the `Next step` line of the plan doc for a multi-session feature. Not a topic ("continue the auth work") — the file to open, the function to change, the command to run, the blocker. A cold session resumes from this and nothing else, so it is the one note always worth writing: the person who needs it is not you, and cannot reconstruct where you stopped from the code alone.
-- **When a decision is made that a future reader would otherwise question** — add an ADR entry at `adr/NNNN-slug.md` (the next free number in the existing chain), and a one-line row pointing at it in `docs/claude/architecture.md`. The trigger is "someone will wonder why we did this," not "this was hard."
+- **When a decision is made that a future reader would otherwise question** — add an ADR entry at `adr/NNNN-slug.md` (the next free number in the existing chain), and a one-line row pointing at it in `docs/agents/architecture.md`. The trigger is "someone will wonder why we did this," not "this was hard."
 - **Always ADR-worthy: anything that moves a layer boundary or introduces a port.** A new port and the adapter behind it, a rule relocated between layers, a Detail swapped out (database, framework, vendor), or a deliberate decision to let one layer know about another. `lib/intelligence/` is this repo's worked example — `adr/0014-intelligence-port-adapters.md`, `adr/0015-adapter-mesh-protocol.md`, `adr/0017-retire-plexo-exclusive-intelligence.md`. The reasoning is invisible in the diff six months later, so without the entry the next person re-litigates a decision that was already made carefully. See `clean-architecture.md`.
 - **When you get burned by a non-obvious behavior** — add it to `key-patterns.md` as a gotcha, with the symptom, not just the fix. The next person will arrive with the symptom.
 - **When infrastructure changes** — update `infrastructure.md` in the same PR as the change. Infra docs that lag the infra are worse than none, because they are trusted.
@@ -804,8 +800,8 @@ Archive, do not delete. The reasoning behind a shipped feature is the context fo
 
 # Code Style & Patterns
 
-> **Applies when:** always — any project in which Claude reads, writes, or edits source code.
-> **Delete this file (and its `@` import in `CLAUDE.md`) if:** never. Trim individual rules instead.
+> **Applies when:** always — any project in which the agent reads, writes, or edits source code.
+> **Delete this file (and its `@` import in the generated agent hub) if:** never. Trim individual rules instead.
 
 ## Before you write code
 
@@ -871,7 +867,7 @@ Before deleting, search the whole repo for the symbol (including string referenc
 # Testing
 
 > **Applies when:** the project has an automated test suite, or is about to get one.
-> **Delete this file (and its `@` import in `CLAUDE.md`) if:** the project has no test runner and none is planned.
+> **Delete this file (and its `@` import in the generated agent hub) if:** the project has no test runner and none is planned.
 
 ## Testability is a design signal, not a fixture problem
 
@@ -941,7 +937,7 @@ Many mocking styles queue results and hand them out **in call order**. So when y
 # Error Handling
 
 > **Applies when:** always — any project that accepts input, performs I/O, or shows results to a user.
-> **Delete this file (and its `@` import in `CLAUDE.md`) if:** never. Trim individual rules instead.
+> **Delete this file (and its `@` import in the generated agent hub) if:** never. Trim individual rules instead.
 
 ## Validate at the boundaries
 
@@ -1000,7 +996,7 @@ This counter-rule matters as much as the rules above. Defensive code between you
 # Database & Migrations
 
 > **Applies when:** the project owns a database schema and a migration history.
-> **Delete this file (and its `@` import in CLAUDE.md) if:** the project has no database of its own, or only reads from a schema another team owns.
+> **Delete this file (and its `@` import in the generated agent hub) if:** the project has no database of its own, or only reads from a schema another team owns.
 
 ## The database is a Detail
 
@@ -1047,7 +1043,7 @@ Three rules above therefore have a documented, deliberate exception here:
 
 ## NEVER use the interactive push/sync command
 
-- **Never run the ORM's interactive schema-push/sync command — `pnpm db:push` (`drizzle-kit push`).** It diffs the schema against a live database and applies it in place: it can DROP tables and columns to make the database match, it prompts mid-run in ways that are easy to answer wrong, and it leaves no migration file — so the change never reaches any other environment. Use generate + apply instead, always. **This is the sharpest edge in this repo**: the `nexalog` schema sits in the *shared* Postgres beside other apps' schemas, so a destructive sync here is not contained to this project. `.claude/settings.json` denies it for Claude Code; that binds Claude only, so it is a hard rule for every other harness.
+- **Never run the ORM's interactive schema-push/sync command — `pnpm db:push` (`drizzle-kit push`).** It diffs the schema against a live database and applies it in place: it can DROP tables and columns to make the database match, it prompts mid-run in ways that are easy to answer wrong, and it leaves no migration file — so the change never reaches any other environment. Use generate + apply instead, always. **This is the sharpest edge in this repo**: the `nexalog` schema sits in the *shared* Postgres beside other apps' schemas, so a destructive sync here is not contained to this project. A tool-specific permission file may deny it, but that binds only the tool that reads it, so it is a hard rule for every harness.
 - The same ban covers any "reset", "force", or "accept data loss" flag on the migration tooling. If you believe one is genuinely needed, stop and ask the user first.
 
 ## Writing data
@@ -1073,7 +1069,7 @@ Each check is a plain script over the migrations directory. Add them once; they 
 # Data Modeling
 
 > **Applies when:** the project designs its own persistent data model and expects to query, aggregate, or report on that data.
-> **Delete this file (and its `@` import in CLAUDE.md) if:** the project stores no durable data of its own.
+> **Delete this file (and its `@` import in the generated agent hub) if:** the project stores no durable data of its own.
 
 Model for the queries you will have to answer later, not just the screen you are building today. Reshaping a data model after it holds production data is the most expensive refactor there is.
 
@@ -1122,7 +1118,7 @@ Use one only when all three hold: the payload is opaque or third-party-shaped, y
 # API & Event Payload Design
 
 > **Applies when:** the project exposes an API, RPC surface, or event/socket stream that another process or client consumes.
-> **Delete this file (and its `@` import in CLAUDE.md) if:** the project has no server-to-client or service-to-service boundary of its own.
+> **Delete this file (and its `@` import in the generated agent hub) if:** the project has no server-to-client or service-to-service boundary of its own.
 
 ## Where this surface sits
 
@@ -1172,7 +1168,7 @@ Use one only when all three hold: the payload is opaque or third-party-shaped, y
 # Front-End Engineering
 
 > **Applies when:** the project builds a client-side application (Next.js 16 App Router with React 19 components, views, routes, and client state).
-> **Delete this file (and its `@` import in `CLAUDE.md`) if:** the project has no user interface — a library, CLI, service, or job runner. Pair it with `design-system.md`, which covers how the UI should *look*; this file covers how it should be *built*.
+> **Delete this file (and its `@` import in the generated agent hub) if:** the project has no user interface — a library, CLI, service, or job runner. Pair it with `design-system.md`, which covers how the UI should *look*; this file covers how it should be *built*.
 
 ## The UI is a Detail
 
@@ -1243,7 +1239,7 @@ Deleting a button is never the whole change. When you remove the last entry poin
 # UI Design System
 
 > **Applies when:** the project ships screens a human looks at (web app, desktop app, mobile app, or a styled docs/marketing surface).
-> **Delete this file (and its `@` import in `CLAUDE.md`) if:** the project has no user interface — a library, CLI, service, or job runner. Nothing here applies to terminal output.
+> **Delete this file (and its `@` import in the generated agent hub) if:** the project has no user interface — a library, CLI, service, or job runner. Nothing here applies to terminal output.
 
 ## Design reference
 
@@ -1325,7 +1321,7 @@ Run this against any new or changed screen before calling it done:
 # AI Features & Data Enrichment
 
 > **Applies when:** the project calls a language model, or fills in record fields from third-party data sources.
-> **Delete this file (and its `@` import in `CLAUDE.md`) if:** the project does neither.
+> **Delete this file (and its `@` import in the generated agent hub) if:** the project does neither.
 
 ## Design for the next model, not this one
 

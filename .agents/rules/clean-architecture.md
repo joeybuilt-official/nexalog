@@ -1,0 +1,138 @@
+# Clean Architecture
+
+> **Applies when:** always — this is the premise of every coding effort in this project, and the module every other rules module inherits from.
+> **Delete this file (and its `@` import in the generated agent hub) if:** never. Adapt the directory map below to the project instead.
+
+## The premise
+
+Business rules outlive every framework choice. The web framework, the ORM, the database, the UI library, and the vendor APIs in this repo will all be replaced, rewritten, or upgraded on someone else's schedule; the rules describing what this system actually does will not. So the core of this codebase depends on none of them. A core that imports its framework cannot be tested without booting infrastructure, cannot be reasoned about without knowing that framework's lifecycle, and cannot be migrated off it without a rewrite — which is why "we will clean it up later" never happens: the coupling grows faster than the cleanup. Dependency direction is not decoration. It is the single property that keeps tests fast, changes local, and rewrites optional. Follow it by default; justify any exception in the change description, before you write it.
+
+## The four layers
+
+Innermost to outermost. **The Dependency Rule**: source-code dependencies point inward only — inner layers know nothing about outer ones.
+
+| Layer | What belongs in it | Forbidden in it | The test that proves you got it right |
+| --- | --- | --- | --- |
+| **Entities / Domain** | Business objects and their invariants, value types, pure domain calculations and policies | Any import from an outer layer: ORM base classes, decorators/annotations, HTTP, files, network, clock, random, env | It compiles and its tests pass with every framework, driver, and network dependency uninstalled |
+| **Use Cases / Application** | One unit per application operation; orchestration, authorization decisions, transaction boundaries; the **ports** (interfaces) the operation needs | Knowledge of HTTP, SQL, ORM types, queue payload formats, UI concepts, or which vendor implements a port | Every test runs against in-memory fakes of its ports — no container, server, database, or network |
+| **Interface Adapters** | Controllers/handlers, presenters and view models, port implementations (repositories, gateways), mappers, DTOs | Business rules; any decision that would change if the business changed while the protocol stayed the same | Deleting this layer would lose no business rule — only translation and wiring |
+| **Frameworks & Drivers** | The web framework, ORM and migrations, database, broker, cache, vendor SDKs, UI framework, config, the composition root that wires everything | Anything you could not replace by writing a new adapter | Swapping the vendor produces a diff confined to this layer and its adapters — no entity or use-case file appears in it |
+
+**Details** — the database, the ORM, the web framework, the UI, the message broker, and every third-party API — are outermost, replaceable, and never depended on by the core. Naming one of them in an inner-layer file is the defect.
+
+## The Dependency Rule in practice
+
+How it actually gets violated, and the mechanical fix. Each of these is a real pattern, not a hypothetical.
+
+| Violation as it appears in code | Mechanical fix |
+| --- | --- |
+| A use case imports an ORM model, entity class, or query builder | Declare a port in the use-case layer taking and returning domain types; implement it as an adapter; inject it at the composition root. Persistence stays behind the port. |
+| A domain type carries a framework decorator or annotation (`@Entity`, `@Column`, a validation-library schema, serialization attributes) | Keep the domain type plain. Define a separate persistence/serialization model in the outer layer plus a mapper. A decorator is an import — it is a dependency pointing outward. |
+| A use case returns an HTTP response, a status code, or a serialized envelope | Return a plain domain value or an application-level result type; let the controller translate it. A use case that knows about `404` cannot be reused by a job, a CLI, or another service. |
+| Business logic in a controller or route handler (`if (user.plan === 'pro' && seats > 5)`) | Move the condition into an entity or use case. The controller is left parsing input, calling one use case, and rendering output. |
+| Business logic in a UI component (pricing math, eligibility, state-machine transitions) | Move it into the domain layer. In a client-server product the authoritative copy lives server-side behind the API — the client may mirror it for instant feedback, but the server decides (see `frontend.md`). In a client-only app, move it into a plain domain module and call that from the component. Either way the rule never lives inline in a component or hook. |
+| Business logic in a database trigger, stored procedure, or ORM lifecycle hook | Move the rule into the domain, where it is visible in code review, unit-testable, and versioned with the code it constrains. Triggers and hooks fire invisibly and cannot be reasoned about locally. |
+| An inner-layer file reads config or environment variables | Pass the value in as a parameter, or behind a port, from the composition root. Reading env is I/O, and it is the usual reason a "pure" test needs a `.env` file. |
+
+## Where things go
+
+Answer in order, stop at the first yes. This should take under 30 seconds.
+
+1. Would this code change because the **business** changed its rules, even on an identical stack? → **Entities / Domain**.
+2. Does it describe one complete application operation — sequencing steps, deciding who may do it, marking a transaction boundary? → **Use Cases / Application**.
+3. Does it exist only to translate between the outside world and the core — parse a request, shape a response, map a row, call a vendor? → **Interface Adapters**.
+4. Would it change because a vendor, framework, or library version changed? → **Frameworks & Drivers**.
+
+Sharpest heuristics, for when the four questions tie:
+
+- Changes when the business changes → inner. Changes when a vendor or framework changes → outer. **Both** → it is two pieces of code wearing one name; split it at that seam first, then place each half.
+- **If you cannot test it without booting infrastructure, it is in the wrong layer or it is missing a port.** No third option.
+- Torn between two adjacent layers: place it inward only if it is expressed entirely in domain terms. Otherwise outward — moving code inward later is mechanical, moving it outward means untangling everything that started depending on it.
+
+## Boundary crossing
+
+- Data crossing a boundary is a **DTO**: plain data, no behavior, no framework types, in both directions. Domain objects stay inside.
+- **Never serialize a domain entity directly to the wire.** The wire shape is a published contract with its own compatibility rules; the domain shape changes whenever a business rule does. Couple them and every internal rename becomes a breaking API change, and every private field leaks to clients. Map explicitly in the adapter.
+- **Never let an ORM persist a domain entity by reflection.** Reflection mapping forces the schema to mirror the object graph and drags lazy-loading, proxies, and identity-map semantics into domain code — after which the domain cannot change without a migration. Define a persistence model in the outer layer and map to it.
+- Mappers live in the outer layer, always. The inner layer must not know the shape it is mapped into; if it does, the dependency has already reversed.
+- **Validation splits across the boundary.** The adapter validates *shape and format* — required fields, parseable types, well-formed identifiers — and rejects with a protocol error. The entity or use case enforces *invariants and business rules* — the ones that must hold no matter which client called. Never let the outer check substitute for the inner one: every other entrypoint (job, CLI, test, another service) skips it.
+- Construct entities only through a constructor or factory that enforces their invariants, so an invalid instance cannot exist for other code to find.
+
+## Pragmatism guardrails
+
+Clean Architecture is a dependency discipline, not a file-count competition. The following are cargo cult, and this file does not ask for them:
+
+- **Do not create a port with exactly one implementation that will never have a second, purely for symmetry.** A port earns its place when it crosses an I/O or process boundary, needs a test double, or has a plausible second implementation. A pure function needs no interface — call it.
+- **Do not add a mapper when the shapes are identical and stable** and the inner type carries no framework dependency. Add it the moment the shapes diverge, or the outer shape becomes a published contract.
+- **Do not split a small project into four physical top-level directories** when a lighter arrangement preserves the direction. One folder per feature with domain, ports, and adapters separated inside it is fully compliant.
+- **Do not add a use case that only forwards to a repository** with no rule, decision, or transaction. For a pure read with no business rule, a query adapter may serve a read model directly — until a rule appears, at which point it moves inward.
+- **Do not demand a separate persistence model** in a project whose domain has no invariants worth protecting. Small CRUD is allowed to let one model serve both — until the first real rule shows up, then split.
+
+**The invariant that actually matters is the dependency direction.** Folder layout, file counts, and naming ceremonies are means to it, not the goal. A change may not be rejected in review for "not enough layers"; it must be rejected for a dependency pointing outward.
+
+**The one rule pragmatism never overrides: never let a shortcut point a dependency outward.** Skipping a port, a mapper, or a directory is a judgement call you can revisit cheaply. Making an inner layer import an outer one is the failure this whole file exists to prevent — it is not a shortcut, it is the bug, and it is the thing that will not be cheap to revisit.
+
+## This project's layers
+
+This repo's layout is root-level — `app/`, `components/`, and `lib/` sit at the top with no source-subdirectory wrapper — and the `@/*` import alias maps to `./*`. Layers are roles attached to directories, not four physical trees:
+
+| Layer | Directory in this project | Import rule |
+| --- | --- | --- |
+| Entities / Domain | the domain rules inside the feature-sliced `lib/<feature>/` modules (`lib/notes/`, `lib/projects/`, `lib/review/`, `lib/time/`, `lib/tags/`, `lib/capture/`, …). The one physically separated domain layer is `packages/core/src/domain/` (+ `packages/core/src/application/` for use cases and `packages/core/src/ports/`) — treat that package as the reference for what "pulled inward" looks like | Imports nothing from the three rows below. No framework, ORM, HTTP, or SDK imports at all. |
+| Use Cases / Application | the orchestration inside the same `lib/<feature>/` slices; ports are declared here — `lib/intelligence/port.ts` (IntelligencePort) is the reference example | Imports the domain rules of the feature slices only. Declares its ports here. |
+| Interface Adapters | `app/api/<area>/route.ts` route handlers, `app/**` pages and route groups, `components/`, `middleware.ts` | Imports the two above. Implements the ports; owns DTOs and mappers. |
+| Frameworks & Drivers | `lib/db/` (Drizzle client + schema), `lib/env.ts`, `instrumentation.ts`, vendor clients (`lib/plexo.ts`, `lib/r2.ts`, `lib/stripe/`), and the intelligence adapters (`lib/intelligence/embedded-adapter.ts`, `lib/intelligence/plexo-adapter.ts`); the adapter package is `packages/adapters/` | May import anything. Nothing imports it except the composition root. |
+
+**Multiple apps:** this repo ships a second deployable app — the Flutter client under `mobile/` — and a workspace monorepo (`pnpm-workspace.yaml`: `.`, `packages/*`, `apps/*`). The four-row map above covers the TypeScript app; `packages/core` carries its own (pure) map and is policed by its own gate rules, and `mobile/` gets its own map rather than being forced into this one.
+
+**Known gaps (honest state):** Clean Architecture here is a *target with documented gaps*. Business rules and I/O are frequently co-located inside the same `lib/<feature>/` file, and some `app/api/**` route handlers still hold business logic that belongs in a slice. `lib/intelligence/` is the port that is genuinely right: IntelligencePort with two adapters — an embedded adapter (direct provider via raw `fetch`, no SDK) as the standalone baseline, and a Plexo adapter that supersedes it when Plexo is present and authorized (ADR-0014/0015/0017). New code follows the target; a new outward-pointing dependency is a defect even where older ones survive. **The import-boundary gate landed 2026-09-25**: `.dependency-cruiser.cjs` + `pnpm depcruise` run in `verify` CI and the pre-commit template. `error` rules block a change: `core-is-pure` (anything under `packages/core` imports nothing — npm, node builtins, or unresolved bare specifiers), `core-no-outer-layers` / `adapters-no-apps` (dependencies point inward only), and `web-lib-no-ui` (`lib/<feature>` never imports `app/`, `components/`, or `middleware.ts`). `web-lib-no-direct-db` is baselined as **`warn`** with these nine known call sites — the ratchet list to convert to `error` once storage moves behind ports: `lib/workspace.ts`, `lib/transcription/index.ts`, `lib/today/cards-data.ts`, `lib/themes/forest.ts`, `lib/projects/store.ts`, `lib/notes/wikilinks.ts`, `lib/export/load.ts`, `lib/enrichment/reader.ts`, `lib/enrichment/metadata.ts`. Everything else in the checklist below (vendor types in slices, DTO boundaries, port + test-double pairing) is not mechanically checkable per-diff and stays review-only.
+
+**The gate asserts its own coverage (2026-09-25).** `pnpm depcruise` runs `scripts/check-architecture.mjs`, which cruises with dependency-cruiser, renders dependency-cruiser's own violation report (identical text and exit code to a bare run), and then verifies the cruise actually saw the codebase. This matters because dependency-cruiser **degrades silently**: with the root `typescript` dependency absent it cruised **3 modules out of ~274**, reported "✔ no dependency violations found", and exited 0 — a green gate with zero coverage and no signal. Nothing in the repo asserted coverage, so nothing caught it. The wrapper now fails loudly, printing observed counts, when: root `typescript` does not resolve, `tsconfig.depcruise.json` is missing, the cruise yields no result, coverage of tracked sources drops below 90% (a ratio, deliberately not an exact module count — a healthy cruise reports 274 modules locally and 273 in CI on the same commit), any tracked file under a policed layer (`packages/core`, `packages/adapters`, `apps/web/lib`) was not cruised, or a key area contributed no modules. **Every exclude entry in `.dependency-cruiser.cjs` → `options.exclude.path` is an unanchored regex matched against the whole path**, so a bare `build` also excludes `lib/export/build-archive.ts` (this had silently retired a policed file) and a bare `mobile` excludes `components/mobile-bottom-nav.tsx` — entries are anchored `(^|/)…(/|$)`, the guard reports how many tracked sources the excludes retired, and `sh scripts/self-test-arch-gate.sh` re-proves all of this against the real gate (dev-only; never wire it into CI).
+
+## Enforcement — the gate, not just the checklist
+
+The review checklist below is the human pass. Dependency direction is *also* checked **mechanically**,
+so a violation fails a command instead of resting on a reviewer noticing it. This is the one guardrail
+that binds every contributor equally — a human, or any AI agent in any tool — but **only once it runs
+in required CI**: a client-side pre-commit hook is skippable with `--no-verify` and a non-Claude agent
+may never run it, so CI is the plane that actually holds.
+
+- **The tool, per stack (name it, do not hand-roll it):** JS/TS → dependency-cruiser (`forbidden`
+  rules); Python → import-linter (`layers` contract); JVM → ArchUnit (`layeredArchitecture()`);
+  Go → go-arch-lint or `depguard`; .NET → NetArchTest; Rust → module visibility + `cargo-deny`. Each
+  encodes the same table under "This project's layers": no inner layer may import an outer one.
+  **Nexalog uses dependency-cruiser**, config `.dependency-cruiser.cjs`, driven by the
+  `scripts/check-architecture.mjs` coverage wrapper.
+- **When it runs:** `pnpm depcruise` runs in the pre-commit gate beside typecheck and test
+  (`git-workflow.md`) and — the binding copy — as a **required** CI check
+  (`.github/workflows/verify.yml`, installed from `scripts/templates/ci-verify.yml`). Green is the only
+  passing score; no agent may merge past it red.
+- **Report-only ramp for a non-conforming repo:** if the layer map still has `target:` rows (business
+  logic in controllers, ORM models imported inward), start the linter in **report-only** mode so the
+  violation count is visible without blocking, then flip it to blocking once the count reaches zero.
+  This is exactly where the check earns its keep — do not skip it on the messy repos that need it most.
+  **Nexalog sits on the second half of that ramp:** the `error` rules are blocking and currently clean;
+  the nine `web-lib-no-direct-db` call sites above are the report-only remainder, and each one is a
+  candidate to move behind a port — never a reason to relax the rule.
+- **Wiring:** the kit NAMES this gate and CHECKS for it (`/audit-agents-setup` Check 6); it does not
+  generate a layout-coupled config for you. Use your stack's tool (or the `arch-enforce` skill if you
+  have it) to create the config from the filled layer map, then set the command to its invocation.
+  That is already done here — the config exists and the wrapper is the invocation. **Never replace the
+  wrapper with a bare `depcruise` call**: the wrapper is what stops a silently-degraded cruise from
+  reporting green (see "The gate asserts its own coverage" above).
+
+## Review checklist
+
+Run against any diff. Each item is pointable: a reviewer can highlight a line and say "this violates item N."
+
+1. **Import direction.** No domain rule or use case inside a `lib/<feature>/` slice imports from `app/api/`, `app/**` pages, `components/`, `middleware.ts`, or `lib/db/`; no slice imports another slice's adapters. Nothing under `packages/core` imports anything at all. Read the diff's import block first — it is the fastest violation to spot. *Automated by the Enforcement gate above*: `pnpm depcruise` (`.dependency-cruiser.cjs`) turns item 1 into a CI failure — `core-is-pure`, `core-no-outer-layers`, `adapters-no-apps` and `web-lib-no-ui` are `error` (currently clean); `web-lib-no-direct-db` is a baselined `warn` awaiting the ratchet list above. The gate also asserts its own coverage (`scripts/check-architecture.mjs`): a cruise that silently saw almost nothing of the tree now **fails** instead of reporting "no violations", so a green run means the rule was actually evaluated against the codebase.
+2. No framework, ORM, HTTP, SDK, or env import appears in the domain rules or use-case code of a `lib/<feature>/` slice — including decorators, annotations, and type-only imports, which still bind those layers to a vendor's shape and release cycle. (`lib/env.ts` is read at the edge, never inward.)
+3. No domain type carries a persistence, validation-library, or serialization annotation.
+4. No use case accepts or returns a framework request/response, a status code, or a transport-shaped envelope.
+5. Every conditional that encodes a business rule lives in a `lib/<feature>/` slice — not in a controller, a UI component, a database trigger, or an ORM lifecycle hook.
+6. Every I/O the core needs sits behind a port declared in the feature slice (the pattern to copy: `lib/intelligence/port.ts`) and implemented in an adapter (`lib/intelligence/embedded-adapter.ts`, `lib/intelligence/plexo-adapter.ts`) or at the route boundary — including clock, random/ID generation, and outbound HTTP. Those three are I/O, and skipping them is the usual reason a test needs a real timer or network.
+7. Every new use case has a test that runs against fakes only — no container, database, server, or network. If it cannot, item 6 was missed.
+8. Data crossing a boundary is a DTO, the mapper sits in the outer layer, and no domain entity is serialized to the wire or handed to an ORM's reflection.
+9. Validation is on both sides and neither substitutes for the other: shape and format at the adapter, invariants in the entity or use case.
+10. Every new port has both a real implementation and a test double, or a one-line reason in the PR for existing. A port with one implementation and no test double is a deletion candidate, not a compliance win.
+11. **Swap test.** Name the vendor or framework this change touches, then confirm the diff to replace it would stay inside `app/api/`, `lib/db/`, and the existing adapter modules (e.g. `lib/intelligence/*-adapter.ts`, `lib/plexo.ts`, `lib/r2.ts`, `lib/stripe/`). If an entity or use-case file would appear in that diff, the change is not done.
