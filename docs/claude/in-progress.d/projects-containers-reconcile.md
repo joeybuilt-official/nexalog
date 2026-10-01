@@ -299,3 +299,44 @@ model call and no live page render were observed. Briefs are not persisted in th
 
 **Next step:** unchanged — Phase 5 remains the gate for this area.
 
+
+---
+
+## Brief publish — SHIPPED 2026-10-01 (branch `feat/brief-publish-to-brain`)
+
+A project's SYNTHESIZED brief can now be proposed into gbrain through the app's
+already-existing proposal queue (`take_proposals`, `kind = 'brief'`). Nothing new
+was integrated and no credential was added.
+
+**The one refusal the feature turns on.** A `fallback` brief is a mechanical digest
+of the project's own data, not a claim about it, so it is REFUSED with a typed code
+(409 `brief_not_synthesized`, carrying the brief's own reason) and the row is never
+written. Only `state === "synthesized"` is publishable.
+
+**Explicit, never a side effect.** Only `POST {intent:"publish"}` reaches the queue;
+a bare no-body POST still just regenerates, and `GET` (the page render) writes
+nothing.
+
+**Idempotency is the content digest, not a ledger.** `content_hash` digests the
+brief itself, so publishing the same brief twice is `created: false` and a brief
+RE-SYNTHESIZED after the project changed is deliberately a new proposal.
+
+**Degrade honestly:** no `GBRAIN_DATABASE_URL` (or a queue write failure) is
+`503 gbrain_unavailable` with a typed code — never a fake success.
+
+**Also corrected:** `apps/web/lib/proposals/queue.ts`'s header claimed this path was
+inert because the containers sat on different Docker networks. It is LIVE —
+`GBRAIN_DATABASE_URL` is set in the deploy and `gbrain-postgres:5432` resolves from
+the web container.
+
+**Out of scope, unchanged:** no schema change, no migration, no `db:push`, no data
+touched, no deploy, no write to the brain (a publish is a PROPOSAL; the operator
+still decides). Phase 5 stays gated.
+
+**Not verified here:** no live deploy and no live model call — the queue is
+exercised against a fake keyed exactly as the real unique index keys it, and the
+store reads against a recording fake. No browser render observed.
+
+**Next step:** unchanged — Phase 5 (operator-gated push target + deploy + prod
+migration) remains the gate. There is now a real producer of project context into
+the brain, which is the piece Phase 5's push target was implicitly waiting for.

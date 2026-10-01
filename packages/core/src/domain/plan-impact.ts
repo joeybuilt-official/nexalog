@@ -42,6 +42,29 @@
  */
 
 /** The four operations a plan change can propose. */
+/**
+ * The marker that keeps the two payloads in `take_proposals.plan_diff` apart.
+ *
+ * Declared HERE, in the leaf module neither of the other two imports, rather than
+ * in either parser: `plan-impact` ↔ `brief-publish` each reference the other (the
+ * parsers must agree on one marker; the brief's parser returns a brief block), and
+ * a shared constant in one of them makes that pair circular. A leaf constant is
+ * the standard break, and the type-only import below carries no runtime edge.
+ */
+export const BRIEF_DIFF_TYPE = "brief/1";
+
+/** One published brief's stored payload, as `brief-publish` declares it. */
+export interface BriefDiff {
+  type: typeof BRIEF_DIFF_TYPE;
+  projectId: string;
+  pageSlug: string;
+  generatedAt: string;
+  modelId: string;
+  promptVersion: string;
+  markdown: string;
+  evidenceNoteTitles: string[];
+}
+
 export const PLAN_OPS = ["add", "modify", "reprioritize", "remove"] as const;
 export type PlanOp = (typeof PLAN_OPS)[number];
 
@@ -236,6 +259,11 @@ export function parsePlanDiff(raw: unknown): PlanDiff | null {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
 
+  // A payload that declares itself something other than a plan change
+  // (`type: "brief/1"`, the published-brief block) is NOT a plan diff — a reader
+  // must not coerce a brief's markdown into `proposed`.
+  if (typeof r.type === "string" && r.type !== "") return null;
+
   const op = r.op;
   if (typeof op !== "string" || !(PLAN_OPS as readonly string[]).includes(op)) return null;
 
@@ -267,6 +295,42 @@ export function toStoredPlanDiff(diff: PlanDiff): StoredPlanDiff {
     rationale: diff.rationale,
     evidence_capture: diff.evidenceCapture,
     confidence: diff.confidence,
+  };
+}
+
+/**
+ * Parse the `plan_diff` column into the PUBLISHED-BRIEF shape, or null when the
+ * value is not one.
+ *
+ * Same defensive posture as `parsePlanDiff`, for the same reason: this column is
+ * unconstrained jsonb on a table gbrain also writes and a human can hand-edit. The
+ * two parsers are disjoint on `type` — a brief block always carries it and a plan
+ * diff never does — so each refuses the other's row rather than rendering half of
+ * it.
+ */
+export function parseBriefDiff(raw: unknown): BriefDiff | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+
+  if (r.type !== BRIEF_DIFF_TYPE) return null;
+
+  const markdown = r.markdown;
+  if (typeof markdown !== "string" || markdown.trim() === "") return null;
+
+  return {
+    type: BRIEF_DIFF_TYPE,
+    projectId: typeof r.project_id === "string" ? r.project_id : "",
+    pageSlug: typeof r.page_slug === "string" ? r.page_slug : "",
+    generatedAt: typeof r.generated_at === "string" ? r.generated_at : "",
+    modelId: typeof r.model_id === "string" ? r.model_id : "",
+    promptVersion: typeof r.prompt_version === "string" ? r.prompt_version : "",
+    markdown,
+    // A block written before the field existed, or hand-edited to drop it,
+    // yields an empty list rather than a refused row: the provenance a reader
+    // needs is the model and the instant, and those are still asserted below.
+    evidenceNoteTitles: Array.isArray(r.evidence_note_titles)
+      ? r.evidence_note_titles.filter((t): t is string => typeof t === "string")
+      : [],
   };
 }
 
