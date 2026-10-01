@@ -12,19 +12,26 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getAuthUser } from "@/lib/auth/server";
 import { getUserWorkspaces } from "@/lib/workspace";
-import { getProject, listGroupableCandidates, type GroupedUnit } from "@/lib/projects/store";
+import {
+  getProject,
+  getProjectNotes,
+  listGroupableCandidates,
+  type GroupedUnit,
+} from "@/lib/projects/store";
 import {
   groupUnitsByKind,
   parentCandidates,
   MAX_PROJECT_DEPTH,
   type ItemKind,
 } from "@/lib/projects/domain";
+import { buildProjectNotesView } from "@/lib/projects/notes";
 import { Badge } from "@/components/ui/badge";
 import { ChevronRight, FolderKanban, Notebook, Bookmark, FileText } from "lucide-react";
 import { ProjectControls } from "./project-controls";
 import { ReparentControl } from "./reparent-control";
 import { AddItemForm } from "./add-item-form";
 import { RemoveItemButton } from "./remove-item-button";
+import { NotesSection } from "./notes-section";
 
 const KIND_LABEL: Record<ItemKind, string> = {
   note: "Notes",
@@ -80,12 +87,28 @@ export default async function ProjectDetailPage({
   const project = await getProject(workspaceIds, id);
   if (!project) notFound();
 
-  const candidates = await listGroupableCandidates(workspaceIds);
+  // The notes are read SEPARATELY from `project.units`, because they are the one
+  // member kind whose list needs its own columns: the note's date and a bounded
+  // excerpt of its body (never the body). `units` carries titles only.
+  const [candidates, noteRows] = await Promise.all([
+    listGroupableCandidates(workspaceIds),
+    getProjectNotes(workspaceIds, id),
+  ]);
 
   // Grouped units are grouped by kind with the `project` kind separated out —
   // it IS the sub-project list, not a fourth pile of members.
   const subProjects = project.units.filter((u) => u.kind === "project");
-  const memberGroups = groupUnitsByKind(project.units.filter((u) => u.kind !== "project"));
+  // NOTES are separated too, and for the same reason: they get their own section
+  // (with a date and an excerpt, which a bare title row cannot carry) and rendering
+  // them here as well would show every linked note twice on one page.
+  const memberGroups = groupUnitsByKind(
+    project.units.filter((u) => u.kind !== "project" && u.kind !== "note"),
+  );
+  const groupedCount = memberGroups.reduce((total, group) => total + group.units.length, 0);
+
+  // Every list rule — which rows survive, the order, the excerpt, the empty copy —
+  // is the pure module's. This page only hands it the rows.
+  const notesView = buildProjectNotesView(noteRows);
 
   // A project that already has a parent cannot itself be a parent (two levels),
   // and one that has sub-projects cannot become a sub-project. Say both out loud
@@ -197,16 +220,28 @@ export default async function ProjectDetailPage({
         )}
       </section>
 
-      {/* Grouped knowledge — each title links to the real page it lives on. */}
+      {/* The project's NOTES — the richest list on the page, and the only one whose
+          rows carry a date and an excerpt. A note's body is never loaded here: the
+          rows link to the on-demand detail view. */}
+      <NotesSection
+        projectId={project.id}
+        notes={notesView.notes}
+        totalLinked={notesView.totalLinked}
+        hiddenDeleted={notesView.hiddenDeleted}
+      />
+
+      {/* Grouped knowledge — each title links to the real page it lives on. Notes
+          are NOT here: they have the section above, and one page does not render a
+          note twice. */}
       <section className="mt-8">
         <h2 className="mb-2 text-xs font-medium text-muted-foreground">
-          Grouped knowledge {project.itemCount > 0 && `(${project.itemCount})`}
+          Grouped knowledge {groupedCount > 0 && `(${groupedCount})`}
         </h2>
 
         {memberGroups.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-            Nothing grouped yet. Add a note, a bookmark or a journal entry below — this project
-            references them, it never copies them.
+            Nothing grouped here yet. Add a bookmark or a journal entry below — notes have their
+            own section above, and this project references them, it never copies them.
           </p>
         ) : (
           <div className="space-y-4">

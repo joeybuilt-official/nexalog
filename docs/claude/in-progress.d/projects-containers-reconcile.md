@@ -213,3 +213,57 @@ handled. Phase 5 stays gated.
 **Next step:** unchanged — Phase 5 (operator-gated push target + deploy + prod migration) is still
 the gate for this area. Creating a sub-project and moving/promoting one are now real against the
 tables that already exist in prod; nothing here needs DDL.
+
+---
+
+## 2026-09-30 — the linked notes become a real surface (and the list never reads a body)
+
+The operator asked for the notes linked to a project (`project_items.item_kind='note'`, 445 rows) to
+be surfaced, with a detail view on demand. The request reads as UI work; what actually decided the
+design is a data shape: **a note can be a whole conversation and some rows exceed 1,000,000
+characters**, so a list that selected `notes.content` would look right in a small database and ship
+megabytes per page in production.
+
+**The body is read in exactly one place.** `getProjectNotes` selects identity, title, the note's own
+`date`, both timestamps and `left(content, NOTE_EXCERPT_SOURCE_CHARS)` — never the column. The
+on-demand route (`/app/projects/<id>/notes/<noteId>`, `getProjectNote`) is where the body is read, for
+one note, because the reader asked. Postgres still detoasts the value to take its prefix; what is
+avoided is the megabyte crossing the wire and reaching the DOM — said that way in the code rather than
+overclaimed.
+
+**All list rules live in one pure module** (`apps/web/lib/projects/notes.ts`, 43 tests, imports nothing
+but types): which rows survive, the three total sort comparators, excerpt/truncation, the empty-state
+copy, and the body-shape classifier the detail view uses. The section component holds only the sort
+state and calls into it, so the client's re-sort and the server's projection run the identical
+comparator.
+
+**Soft-deletes are refused twice, on purpose.** The query filters `deleted_at IS NULL` (the first
+refusal) and the pure projection drops a row carrying `deleted_at` (the second), each asserted
+independently — so a future edit that loses the WHERE clause cannot render a deleted note. Both
+refusals were proven to bite by mutation (below).
+
+**Notes moved OUT of "Grouped knowledge" into their own section.** Leaving them in both places would
+render every linked note twice on one page; the new section is where the date and the excerpt live,
+which a bare title row cannot carry. `groupedCount` now counts what the section actually renders.
+
+**The row order rule has one home.** The SQL carries no `ORDER BY`; ordering is the pure module's, so
+the list's order cannot depend on which layer you read.
+
+**Two rules the tests found, not the design:** flattening every tag to a space produced
+`there , world` from `<strong>there</strong>, world` (block-ending tags are now the word boundary,
+inline tags are removed outright), and a whitespace-only `date` reached the DOM as an empty line
+instead of `null`.
+
+**Proven to bite:** five mutations each turned the intended test RED — sanitiser removed from the
+detail view (the `<script>` / `onerror` / `javascript:` vectors survive), the projection's soft-delete
+guard neutered (3 RED), the list query widened to `content`, the excerpt cut back to a UTF-16 slice
+(half an emoji), the query's `deleted_at IS NULL` dropped. All five reverted.
+
+**Out of scope, unchanged:** no schema change, no migration, no `db:push`, no data touched, no deploy,
+Phase 5 still gated. **Not verified:** no database and no browser were available here — the SQL is
+asserted against the real Drizzle builders with a recording fake and has never run against the shared
+Postgres, and no live page render was observed.
+
+**Next step:** unchanged — Phase 5 (operator-gated push target + deploy + prod migration) is still the
+gate for this area. The notes section adds no gate of its own, and no migration.
+

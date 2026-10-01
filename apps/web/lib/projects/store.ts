@@ -24,6 +24,7 @@ import {
   type ProjectContextDigest,
   type ReparentPlan,
 } from "@/lib/projects/domain";
+import { NOTE_EXCERPT_SOURCE_CHARS } from "@/lib/projects/notes";
 
 /**
  * Hard bound on the ancestry walk below. The walk exists to REFUSE a cycle, so
@@ -334,6 +335,162 @@ export async function hydrateGroupedUnits(projectId: string): Promise<GroupedUni
   return items
     .map((it) => titleById.get(`${it.itemKind}:${it.itemId}`))
     .filter((u): u is GroupedUnit => Boolean(u));
+}
+
+// ---- linked notes ---------------------------------------------------------
+
+/**
+ * The columns the NOTES LIST may read. `notes.content` is deliberately NOT among
+ * them: the excerpt needs a summary-sized prefix and nothing else, so the query
+ * carries `left(content, NOTE_EXCERPT_SOURCE_CHARS)` and the body never leaves the
+ * database. That matters because a note can be a whole conversation — some rows
+ * here are past a million characters — and a page that selected the column would
+ * ship every linked note's full text to render a title and a one-line excerpt.
+ *
+ * Postgres still has to detoast the value to take its prefix; what this avoids is
+ * the megabyte crossing the wire and reaching the render. The honest limit is on
+ * the wire and in the DOM, not in the database's own read.
+ *
+ * There is no `ORDER BY`: ordering is the pure module's rule
+ * (`buildProjectNotesView`), so the list's order has exactly one home.
+ */
+const PROJECT_NOTE_LIST_COLUMNS = {
+  id: schema.notes.id,
+  title: schema.notes.title,
+  date: schema.notes.date,
+  updatedAt: schema.notes.updatedAt,
+  /** When the note was linked to the project — the edge's own timestamp. */
+  addedAt: schema.projectItems.addedAt,
+  /** A bounded PREFIX of the body. Never the body — see above. */
+  excerptSource: sql<string>`left(${schema.notes.content}, ${NOTE_EXCERPT_SOURCE_CHARS})`,
+  /**
+   * Selected even though the WHERE clause already excludes deleted rows. The
+   * query's `deleted_at IS NULL` is the first refusal and the pure projection's is
+   * the second, independently asserted — so a future edit that loses the filter
+   * still cannot render a deleted note. See `isLiveLinkedNote`.
+   */
+  deletedAt: schema.notes.deletedAt,
+} as const;
+
+/** One row of the project's linked-notes list, as the store hands it over. */
+export type ProjectNoteListRow = {
+  id: string;
+  title: string;
+  /** A bounded PREFIX of the body. */
+  excerptSource: string;
+  date: string | null;
+  updatedAt: Date;
+  addedAt: Date;
+  deletedAt: Date | null;
+};
+
+/**
+ * The notes linked to `projectId` through `project_items` (`item_kind = 'note'`),
+ * scoped to the caller's workspaces.
+ *
+ * Four things the WHERE clause enforces, in this order of consequence:
+ *   1. `item_kind = 'note'` — sub-projects are edges in the same table, and the
+ *      kind is what separates a note from a project;
+ *   2. the note belongs to one of the caller's workspaces — another workspace's
+ *      note is not merely unrendered, it is never read;
+ *   3. `deleted_at IS NULL` — a soft-deleted note never surfaces;
+ *   4. `project_id = projectId` — the edge, not a global note scan.
+ */
+export async function getProjectNotes(
+  workspaceIds: string[],
+  projectId: string,
+): Promise<ProjectNoteListRow[]> {
+  if (workspaceIds.length === 0) return [];
+
+  const rows = await db
+    .select(PROJECT_NOTE_LIST_COLUMNS)
+    .from(schema.projectItems)
+    .innerJoin(schema.notes, eq(schema.notes.id, schema.projectItems.itemId))
+    .where(
+      and(
+        eq(schema.projectItems.projectId, projectId),
+        eq(schema.projectItems.itemKind, "note"),
+        inArray(schema.notes.workspaceId, workspaceIds),
+        isNull(schema.notes.deletedAt),
+      ),
+    );
+
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    excerptSource: row.excerptSource ?? "",
+    date: row.date,
+    updatedAt: row.updatedAt,
+    addedAt: row.addedAt,
+    deletedAt: row.deletedAt,
+  }));
+}
+
+/** One note's full body, for the on-demand detail view. */
+export type ProjectNoteDetail = {
+  id: string;
+  projectId: string;
+  /** The owning project's name, so the detail view can show where it is from. */
+  projectName: string;
+  title: string;
+  content: string;
+  date: string | null;
+  kind: string;
+  createdAt: Date;
+  updatedAt: Date;
+  addedAt: Date;
+};
+
+/**
+ * One linked note WITH its body, for the detail route.
+ *
+ * The body is fetched here and only here — this is the "on demand" half of the
+ * list's bounded prefix. The note is reached THROUGH the project edge, which is
+ * the point: a note that is not linked to this project is a 404 even if the caller
+ * could open it at `/app/notes/<id>`, because this surface is "the project's
+ * notes", not a second global note reader. Workspace scope, soft-delete on both
+ * the note and its project, and the edge are all in the one WHERE clause.
+ */
+export async function getProjectNote(
+  workspaceIds: string[],
+  projectId: string,
+  noteId: string,
+): Promise<ProjectNoteDetail | null> {
+  if (workspaceIds.length === 0) return null;
+
+  const rows = await db
+    .select({
+      id: schema.notes.id,
+      title: schema.notes.title,
+      content: schema.notes.content,
+      date: schema.notes.date,
+      kind: schema.notes.kind,
+      createdAt: schema.notes.createdAt,
+      updatedAt: schema.notes.updatedAt,
+      addedAt: schema.projectItems.addedAt,
+      projectId: schema.projects.id,
+      projectName: schema.projects.name,
+    })
+    .from(schema.projectItems)
+    .innerJoin(schema.notes, eq(schema.notes.id, schema.projectItems.itemId))
+    .innerJoin(schema.projects, eq(schema.projects.id, schema.projectItems.projectId))
+    .where(
+      and(
+        eq(schema.projectItems.projectId, projectId),
+        eq(schema.projectItems.itemKind, "note"),
+        eq(schema.notes.id, noteId),
+        inArray(schema.notes.workspaceId, workspaceIds),
+        isNull(schema.notes.deletedAt),
+        inArray(schema.projects.workspaceId, workspaceIds),
+        isNull(schema.projects.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  const row = rows[0];
+  if (!row) return null;
+
+  return { ...row, content: row.content ?? "" };
 }
 
 /** Live child projects of `projectId`, oldest reference first. */
