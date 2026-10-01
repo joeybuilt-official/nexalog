@@ -267,3 +267,35 @@ Postgres, and no live page render was observed.
 **Next step:** unchanged — Phase 5 (operator-gated push target + deploy + prod migration) is still the
 gate for this area. The notes section adds no gate of its own, and no migration.
 
+---
+
+## Brief synthesis — SHIPPED 2026-10-01 (branch `feat/project-brief-synthesis`)
+
+Operator request: a synthesized markdown summary of a project built from its linked notes,
+sub-projects and themes, exposed through an API route and shown on the project detail page.
+
+**What landed.** `lib/projects/brief.ts` (pure), `lib/projects/brief-service.ts` (the use case),
+the brief's three bounded reads in `lib/projects/store.ts` (beside every other project query, so
+workspace scoping stays in one place and no new slice reaches the DB directly),
+`lib/projects/brief-client.ts` (the one client call), the first implementation of ADR-0014/0017's
+**IntelligencePort** (`lib/intelligence/{port,embedded-adapter,prompts,resolve}.ts`), `GET|POST
+/api/projects/[id]/brief`, and `BriefSection` on the detail page.
+
+**The rule that shaped it:** a note body must never reach the brief. The store selects
+`length(content)` and the embedding, never `content`; a million-character note contributes a title
+and a number. Theme matching is a pure cosine against `memory_themes`' own centroids — READ, never
+recomputed (the clustering pass is a separate change).
+
+**Degradation is the contract, not an edge case:** with no `LLM_BASE_URL`/`LLM_API_KEY` the route
+returns `state: "fallback"` — a clearly-labelled mechanical digest — with 200, never a 5xx. A model
+error and an empty answer degrade the same way, with a stable reason code and no upstream text.
+
+**Out of scope, unchanged:** no schema change, no migration, no `db:push`, no data touched, no
+deploy, no write to any external system, no recomputation of `memory_themes`. Phase 5 stays gated.
+
+**Not verified here:** no database and no browser — the SQL is asserted against the real Drizzle
+builders with a recording fake; the embedded adapter is asserted against a stubbed `fetch`; no live
+model call and no live page render were observed. Briefs are not persisted in this slice.
+
+**Next step:** unchanged — Phase 5 remains the gate for this area.
+

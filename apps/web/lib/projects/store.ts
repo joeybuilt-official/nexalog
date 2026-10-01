@@ -25,6 +25,13 @@ import {
   type ReparentPlan,
 } from "@/lib/projects/domain";
 import { NOTE_EXCERPT_SOURCE_CHARS } from "@/lib/projects/notes";
+import { parseVectorLiteral } from "@/lib/queue/lenses";
+import type {
+  BriefNoteRow,
+  BriefSubProjectRow,
+  BriefThemeRow,
+  ProjectBriefSource,
+} from "@/lib/projects/brief";
 
 /**
  * Hard bound on the ancestry walk below. The walk exists to REFUSE a cycle, so
@@ -1115,4 +1122,136 @@ async function summariseCounts(projectIds: string[]): Promise<{
     itemCounts: new Map(memberRows.map((r) => [r.projectId, Number(r.count)])),
     subProjectCounts: new Map(subProjectRows.map((r) => [r.projectId, Number(r.count)])),
   };
+}
+
+// ---- brief IO --------------------------------------------------------------
+// Three bounded reads feed the pure brief assembler (`lib/projects/brief.ts`),
+// and this is where they live — beside every other project query, so workspace
+// scoping and soft-delete are enforced in ONE place and no new slice reaches the
+// database directly.
+//
+// `notes.content` is NEVER selected: a note can be a million-character
+// conversation, and the brief needs a title, a date and a SIZE. The embedding is
+// selected only as a text literal (Drizzle cannot express a pgvector column) and
+// parsed here. Themes are READ from `memory_themes` — never recomputed.
+
+/**
+ * The linked notes' metadata, ownership-scoped and soft-delete aware.
+ *
+ * `contentLength` is `length(content)` computed in SQL — the body itself never
+ * crosses to the app.
+ */
+export async function getProjectBriefNotes(
+  workspaceIds: string[],
+  projectId: string,
+): Promise<BriefNoteRow[]> {
+  if (workspaceIds.length === 0) return [];
+
+  const rows = await db
+    .select({
+      id: schema.notes.id,
+      title: schema.notes.title,
+      date: schema.notes.date,
+      updatedAt: schema.notes.updatedAt,
+      addedAt: schema.projectItems.addedAt,
+      deletedAt: schema.notes.deletedAt,
+      contentLength: sql<number | null>`length(${schema.notes.content})`,
+      embedding: sql<string | null>`${schema.notes}.embedding::text`,
+    })
+    .from(schema.projectItems)
+    .innerJoin(schema.notes, eq(schema.notes.id, schema.projectItems.itemId))
+    .where(
+      and(
+        eq(schema.projectItems.projectId, projectId),
+        eq(schema.projectItems.itemKind, "note"),
+        inArray(schema.notes.workspaceId, workspaceIds),
+        isNull(schema.notes.deletedAt),
+      ),
+    );
+
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    date: row.date,
+    updatedAt: row.updatedAt,
+    addedAt: row.addedAt,
+    deletedAt: row.deletedAt,
+    contentLength: row.contentLength === null ? 0 : Number(row.contentLength),
+    embedding:
+      typeof row.embedding === "string" ? parseVectorLiteral(row.embedding) : null,
+  }));
+}
+
+/**
+ * The workspace's memory themes. The centroid is cast to text and parsed, so the
+ * same code reads it whether the column is pgvector (`[0.1,0.2]`) or jsonb
+ * (also `[0.1, 0.2]`). A theme whose centroid cannot be parsed keeps a null
+ * centroid and the pure matcher declines it rather than ranking against noise.
+ */
+export async function getWorkspaceThemes(workspaceIds: string[]): Promise<BriefThemeRow[]> {
+  if (workspaceIds.length === 0) return [];
+
+  const rows = await db
+    .select({
+      themeId: schema.memoryThemes.themeId,
+      label: schema.memoryThemes.label,
+      size: schema.memoryThemes.size,
+      centroidText: sql<string | null>`${schema.memoryThemes.centroid}::text`,
+    })
+    .from(schema.memoryThemes)
+    .where(inArray(schema.memoryThemes.workspaceId, workspaceIds));
+
+  return rows.map((row) => ({
+    themeId: row.themeId,
+    label: row.label,
+    size: Number(row.size ?? 0),
+    centroid: typeof row.centroidText === "string" ? parseVectorLiteral(row.centroidText) : null,
+  }));
+}
+
+/** Build the assembler's input from an already-loaded project — no second read. */
+export async function loadProjectBriefSource(
+  workspaceIds: string[],
+  project: ProjectDetail,
+): Promise<ProjectBriefSource> {
+  const [notes, themes] = await Promise.all([
+    getProjectBriefNotes(workspaceIds, project.id),
+    getWorkspaceThemes(workspaceIds),
+  ]);
+
+  const subProjects: BriefSubProjectRow[] = project.subProjects.map((sub) => ({
+    id: sub.id,
+    name: sub.name,
+    lifecycleState: sub.lifecycleState,
+    // `getProject` already dropped soft-deleted children; this is the explicit
+    // half the pure assembler refuses again.
+    deletedAt: null,
+  }));
+
+  return {
+    project: {
+      id: project.id,
+      name: project.name,
+      description: project.description,
+      lifecycleState: project.lifecycleState,
+      livingDoc: project.livingDoc,
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt,
+      deletedAt: null,
+    },
+    notes,
+    subProjects,
+    themes,
+  };
+}
+
+/** Ownership-scoped source for one project, or `null` when it does not resolve. */
+export async function getProjectBriefSource(
+  workspaceIds: string[],
+  projectId: string,
+): Promise<ProjectBriefSource | null> {
+  if (workspaceIds.length === 0) return null;
+  const project = await getProject(workspaceIds, projectId);
+  if (!project) return null;
+  return loadProjectBriefSource(workspaceIds, project);
 }

@@ -21,6 +21,28 @@ Add an entry when a feature is tested and signed off, at the same time you move 
 
 <!-- New entries go directly below this line, newest first. -->
 
+### Projects — per-project BRIEF synthesis — 2026-10-01
+- **What shipped:** every project page now carries a BRIEF — a short, structured markdown summary of
+  what the project is, its current state, active threads, recent activity and open questions —
+  assembled from the project's own record, its linked notes' metadata, its sub-projects and the
+  workspace themes its notes match. `GET|POST /api/projects/[id]/brief` reads or regenerates it on
+  demand, and the detail page surfaces it with a Regenerate control. With no model configured the
+  brief is a clearly-labelled mechanical digest rather than an error.
+- **Area:** `platform`
+- **Archived plan:** `platform/projects/plan.md` §Project brief (the projects folder stays live —
+  this is a sub-feature, not the end of the initiative)
+- **Notable decisions:** the model leg is the **IntelligencePort** ADR-0014/0017 already specified
+  (`lib/intelligence/{port,embedded-adapter,resolve}.ts`, raw `fetch`, no provider SDK), so no new
+  ADR was needed — the port was decided, this is its first implementation. All assembly, ordering,
+  truncation and theme-matching is one PURE module (`lib/projects/brief.ts`); no rule lives in a
+  component. Prompt and tuning live as a versioned template (`lib/intelligence/prompts.ts`) and the
+  model id comes from `LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL`, never a literal at a call site.
+- **Known gaps:** nothing is persisted — a brief is synthesized on demand, so a Regenerate click is
+  a fresh model call and the project page makes that call during render. There is no Plexo federated
+  adapter yet (no agreed completion contract in this tree), no provenance row for a synthesized
+  brief, and the themes are matched from note embeddings read as raw SQL text (they are READ, never
+  recomputed).
+
 ### Panoply kit refresh — 2026-09-30
 - **What shipped:** the kit is now genuinely current rather than merely stamped. All 14 surviving
   `.claude/rules/` modules were reconciled by hand against kit v1.4.0 (merging the kit's body while
