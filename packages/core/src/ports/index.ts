@@ -15,6 +15,7 @@ import {
   TakeProposal,
 } from "../domain/take-proposal";
 import { StoredPlanDiff } from "../domain/plan-impact";
+import type { StoredBriefDiff } from "../domain/brief-publish";
 
 /** Generate IDs (ULIDs) and timestamps. Injectable for deterministic tests. */
 export interface IdGen {
@@ -462,10 +463,17 @@ export interface ProposeInput {
   domain: string | null;
   modelId: string;
   /**
-   * The plan-change payload, stored in `take_proposals.plan_diff`. Only meaningful
-   * for `kind = 'plan_change'`; null for every other kind.
+   * The structured payload stored in `take_proposals.plan_diff`. It is typed by
+   * KIND: a `plan_change` carries a `StoredPlanDiff` (op/current/proposed/…), a
+   * published brief carries a `StoredBriefDiff` (a `brief/1` block), and every
+   * other kind carries null.
+   *
+   * One union in one field rather than a column per kind: `take_proposals` is
+   * gbrain's table, and a column added to it constrains gbrain's own future
+   * INSERTs. The `type` marker on the brief block is what lets each reader refuse
+   * the other's row instead of rendering half of it.
    */
-  planDiff: StoredPlanDiff | null;
+  planDiff: StoredPlanDiff | StoredBriefDiff | null;
 }
 
 export interface ProposeOutcome {

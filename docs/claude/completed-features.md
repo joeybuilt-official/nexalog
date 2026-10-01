@@ -122,3 +122,23 @@ Add an entry when a feature is tested and signed off, at the same time you move 
   test, so the decision cannot silently erode.
 - **Known gaps:** parity row 13 (`/app/graph`) is still **Missing** — no screen, no route, no
   `/api/graph` caller. The remainder needs a build-vs-deferral gate decision before code.
+
+### Project brief → brain publish — 2026-10-01
+- **What shipped:** a project's SYNTHESIZED brief can be proposed into gbrain through
+  the app's existing proposal queue (`take_proposals`, `kind = 'brief'`). Rules, tests
+  and route: `packages/core/src/domain/brief-publish.ts`, `.../application/publish-project-brief.ts`,
+  `apps/web/lib/projects/publish.ts`, `POST /api/projects/[id]/brief {intent:"publish"}`,
+  and a Publish control on the brief section.
+- **Area:** `platform`
+- **Notable decisions:** a `fallback` brief is REFUSED (409 `brief_not_synthesized`) —
+  a mechanical digest is not a claim and must never enter the brain as one. Publishing
+  is an explicit intent, never a side effect of viewing. Idempotency is a content digest
+  of the brief itself, so the same brief twice is a no-op and a re-synthesis is a new
+  proposal. Provenance (project, model, instant, linked-note titles) rides both the
+  claim and a `brief/1` block in the existing `plan_diff` column — no column added to a
+  table gbrain owns. Publishing is a PROPOSAL: nothing reaches the brain until the
+  operator accepts in `/app/proposals`.
+- **Known gaps:** no live deploy and no live model call were exercised from this tree;
+  the queue is asserted against a fake keyed exactly as its real unique index keys it.
+  The brain-page resolution falls back to a synthesized slug when a project has no page
+  yet — Phase 5's push target is what will give sub-projects real pages.

@@ -20,7 +20,9 @@
  * both kinds by construction.
  */
 
-import type { PlanDiff, TakeProposal } from "@nexalog/core";
+import type { BriefDiff, PlanDiff, TakeProposal } from "@nexalog/core";
+
+import { PROJECT_SLUG_PREFIX, parseBriefDiff, parsePlanDiff } from "@nexalog/core";
 
 /**
  * The plan-change payload as the client sees it, or null.
@@ -45,6 +47,28 @@ export interface PlanDiffDto {
   confidence: number;
 }
 
+/**
+ * A published BRIEF as the client sees it — the second kind of payload the same
+ * queue holds, and the reason `planDiff` is a union rather than a plan shape.
+ *
+ * `projectHref` is resolved HERE, from the slug, exactly as `pageHref` is: the
+ * card needs a link into this app, and re-deriving it in a component is the
+ * duplicated-route defect this repo has already shipped once.
+ */
+export interface BriefDiffDto {
+  type: string;
+  projectId: string;
+  projectHref: string | null;
+  pageSlug: string;
+  generatedAt: string;
+  modelId: string;
+  promptVersion: string;
+  /** The brief's own text, so the card can show what would be promoted. */
+  markdown: string;
+  /** Titles only — never a note body, which can run past a million characters. */
+  evidenceNoteTitles: string[];
+}
+
 export interface ProposalDto {
   id: number;
   /** Which gbrain source the claim belongs to (the page's source, not the caller's). */
@@ -63,8 +87,12 @@ export interface ProposalDto {
   promotedRowNum: number | null;
   actedAt: string | null;
   actedBy: string | null;
-  /** The plan change this proposal describes; null for every claim-shaped kind. */
-  planDiff: PlanDiffDto | null;
+  /**
+   * The structured payload this proposal carries: a plan change, or a published
+   * brief, or null for every claim-shaped kind. The two are discriminated by
+   * `type` on the brief side (`brief/1`), so a renderer can never confuse them.
+   */
+  planDiff: PlanDiffDto | BriefDiffDto | null;
 }
 
 /**
@@ -112,9 +140,75 @@ export function toProposalDto(row: TakeProposal): ProposalDto {
     promotedRowNum: row.promotedRowNum,
     actedAt: row.actedAt ? row.actedAt.toISOString() : null,
     actedBy: row.actedBy,
-    planDiff: toPlanDiffDto(row.planDiff),
+    planDiff: toProposalDiffDto(row.planDiff),
   };
 }
+
+/**
+ * ONE mapper for the union, dispatching on the parsed payload.
+ *
+ * It re-parses from the DOMAIN value rather than re-parsing the raw column: the
+ * adapter already refused anything malformed, and parsing twice would let the two
+ * readers disagree about what a row is.
+ */
+function toProposalDiffDto(diff: PlanDiff | BriefDiff | null): PlanDiffDto | BriefDiffDto | null {
+  if (!diff) return null;
+  if (isBriefDiff(diff)) return toBriefDiffDto(diff);
+  return toPlanDiffDto(diff);
+}
+
+/**
+ * The discriminator, written as a type guard so neither branch needs a cast: a
+ * brief block ALWAYS carries `type` and a plan diff never does, which is the
+ * same invariant `parsePlanDiff`/`parseBriefDiff` enforce on the way in.
+ */
+function isBriefDiff(diff: PlanDiff | BriefDiff): diff is BriefDiff {
+  return (diff as { type?: unknown }).type === BRIEF_DIFF_TYPE_LOCAL;
+}
+
+const BRIEF_DIFF_TYPE_LOCAL = "brief/1";
+
+function toBriefDiffDto(diff: BriefDiff): BriefDiffDto {
+  return {
+    type: diff.type,
+    projectId: diff.projectId,
+    projectHref: briefProjectHref(diff.projectId, diff.pageSlug),
+    pageSlug: diff.pageSlug,
+    generatedAt: diff.generatedAt,
+    modelId: diff.modelId,
+    promptVersion: diff.promptVersion,
+    markdown: diff.markdown,
+    evidenceNoteTitles: diff.evidenceNoteTitles,
+  };
+}
+
+/**
+ * The in-app route for the project a brief describes.
+ *
+ * `projects/<slug>` is a BRAIN page, not an app project: the `projects/` prefix
+ * is therefore stripped rather than repeated, and the rest is encoded per
+ * segment. A synthesized slug with no page behind it still yields a valid route
+ * to the project's own page (`/app/projects/<projectId>`), because that is the
+ * object the operator can act on.
+ */
+function briefProjectHref(projectId: string, pageSlug: string): string | null {
+  const trimmed = (pageSlug ?? "").trim();
+  const rest = trimmed.startsWith(PROJECT_SLUG_PREFIX)
+    ? trimmed.slice(PROJECT_SLUG_PREFIX.length)
+    : trimmed;
+  if (rest !== "") {
+    const encoded = rest
+      .split("/")
+      .map((segment) => encodeURIComponent(segment))
+      .join("/");
+    return `/app/projects/${encoded}`;
+  }
+  return projectId ? `/app/projects/${encodeURIComponent(projectId)}` : null;
+}
+
+// Re-exported so a consumer of this DTO can build a route without a second copy
+// of the prefix rule.
+export { parseBriefDiff, parsePlanDiff };
 
 function toPlanDiffDto(diff: PlanDiff | null): PlanDiffDto | null {
   if (!diff) return null;

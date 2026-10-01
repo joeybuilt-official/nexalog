@@ -25,6 +25,7 @@ import {
   type ReparentPlan,
 } from "@/lib/projects/domain";
 import { NOTE_EXCERPT_SOURCE_CHARS } from "@/lib/projects/notes";
+import { BRIEF_PUBLISH_EVIDENCE_NOTE_TITLES } from "@/lib/projects/publish";
 import { parseVectorLiteral } from "@/lib/queue/lenses";
 import type {
   BriefNoteRow,
@@ -1254,4 +1255,91 @@ export async function getProjectBriefSource(
   const project = await getProject(workspaceIds, projectId);
   if (!project) return null;
   return loadProjectBriefSource(workspaceIds, project);
+}
+
+/**
+ * NEXALOG-PROJECTS — the BRIEF PUBLISH reads: which brain page a project is
+ * addressed to, and the rows a publisher cites as evidence.
+ *
+ * These live beside every other project query so workspace scoping and the
+ * "never select a note body" rule stay in ONE place (the slice imports no DB of
+ * its own).
+ *
+ * Own row, not the `nexalog-PROJECTS` bulk clauses above: this read is for one
+ * project and one workspace, and nothing here is reused from the list path.
+ */
+
+/** The project's own identity plus the parent's NAME, for the slug rules. */
+export type ProjectAddressRow = {
+  id: string;
+  name: string;
+  /** The parent project's name, when this project is a sub-project. */
+  parentName: string | null;
+};
+
+/**
+ * A project's address row, scoped to the caller's workspaces. `null` means the
+ * project is not the caller's (or is soft-deleted) — the same answer `getProject`
+ * gives, and deliberately the same absence so a publish can never address a
+ * project the caller cannot see.
+ */
+export async function getProjectAddress(
+  workspaceIds: string[],
+  projectId: string,
+): Promise<ProjectAddressRow | null> {
+  if (workspaceIds.length === 0) return null;
+
+  const project = await getProjectRow(workspaceIds, projectId);
+  if (!project) return null;
+
+  const parentId = await getProjectParentId(projectId);
+  let parentName: string | null = null;
+  if (parentId) {
+    const parents = await db
+      .select({ name: schema.projects.name })
+      .from(schema.projects)
+      .where(
+        and(
+          eq(schema.projects.id, parentId),
+          inArray(schema.projects.workspaceId, workspaceIds),
+          isNull(schema.projects.deletedAt),
+        ),
+      )
+      .limit(1);
+    parentName = parents[0]?.name ?? null;
+  }
+
+  return { id: project.id, name: project.name, parentName };
+}
+
+/**
+ * The titles of the notes linked to a project — the one extra piece of evidence a
+ * published brief cites.
+ *
+ * TITLE ONLY, and that is the whole point: a note can be a conversation past a
+ * million characters, and the publish path has no use for a body. The same rule
+ * the brief assembler states, applied to a second reader rather than restated.
+ */
+export async function getProjectNoteTitles(
+  workspaceIds: string[],
+  projectId: string,
+  limit = BRIEF_PUBLISH_EVIDENCE_NOTE_TITLES,
+): Promise<string[]> {
+  if (workspaceIds.length === 0) return [];
+
+  const rows = await db
+    .select({ title: schema.notes.title })
+    .from(schema.projectItems)
+    .innerJoin(schema.notes, eq(schema.notes.id, schema.projectItems.itemId))
+    .where(
+      and(
+        eq(schema.projectItems.projectId, projectId),
+        eq(schema.projectItems.itemKind, "note"),
+        inArray(schema.notes.workspaceId, workspaceIds),
+        isNull(schema.notes.deletedAt),
+      ),
+    )
+    .limit(Math.max(1, Math.min(50, limit)));
+
+  return rows.map((row) => (row.title ?? "").trim()).filter((title) => title !== "");
 }

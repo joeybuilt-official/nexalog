@@ -66,6 +66,7 @@ import {
   ProposalQueueError,
   ProposalStatusCounts,
   parsePlanDiff,
+  parseBriefDiff,
   type ProposeInput,
   type ProposeOutcome,
   type PromotedTake,
@@ -125,11 +126,12 @@ function toProposal(row: ProposalRow): TakeProposal {
     promotedRowNum: row.promoted_row_num === null ? null : Number(row.promoted_row_num),
     actedAt: row.acted_at === null ? null : new Date(row.acted_at),
     actedBy: row.acted_by,
-    // `parsePlanDiff` rather than a cast: the column is unconstrained jsonb on a
-    // table gbrain and psql also write to, so a malformed value must degrade to
-    // "not a plan diff" (the card falls back to the claim) instead of throwing
-    // inside a list render.
-    planDiff: parsePlanDiff(row.plan_diff),
+    // `parsePlanDiff` / `parseBriefDiff` rather than a cast: the column is
+    // unconstrained jsonb on a table gbrain and psql also write to, so a
+    // malformed value must degrade to "not a plan diff" / "not a published brief"
+    // (the card falls back to the claim) instead of throwing inside a list render.
+    // Each parser refuses the other's block on the `type` marker.
+    planDiff: parsePlanDiff(row.plan_diff) ?? parseBriefDiff(row.plan_diff),
   };
 }
 

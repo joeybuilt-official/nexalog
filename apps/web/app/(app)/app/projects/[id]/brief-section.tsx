@@ -17,13 +17,23 @@
 // Regeneration is an explicit action with all three async states: the button
 // disables while pending, a failure is shown in place, and the previous brief
 // stays on screen so a failed refresh never blanks the section.
+//
+// PUBLISH is the second explicit action, and it is offered ONLY on a synthesized
+// brief: a mechanical digest is not a claim about the project, so the control is
+// absent rather than present-and-refusing. (The server refuses it too — a UI that
+// hides a button is not an authorization — and the refusal that comes back is
+// REPORTED, so a client that somehow gets there still learns why.)
 
 import { useState } from "react";
-import { RefreshCw, Sparkles } from "lucide-react";
+import { RefreshCw, Send, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { BRIEF_FALLBACK_LABEL, type ProjectBrief } from "@/lib/projects/brief";
-import { requestProjectBrief } from "@/lib/projects/brief-client";
+import {
+  publishProjectBrief,
+  requestProjectBrief,
+  type BriefPublishOutcome,
+} from "@/lib/projects/brief-client";
 
 export function BriefSection({
   projectId,
@@ -35,13 +45,16 @@ export function BriefSection({
 }) {
   const [brief, setBrief] = useState(initialBrief);
   const [pending, setPending] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [published, setPublished] = useState<BriefPublishOutcome | null>(null);
 
   const synthesized = brief.state === "synthesized";
 
   async function regenerate() {
     setPending(true);
     setError(null);
+    setPublished(null);
     try {
       setBrief(await requestProjectBrief(projectId, { method: "POST" }));
     } catch {
@@ -50,6 +63,22 @@ export function BriefSection({
       );
     } finally {
       setPending(false);
+    }
+  }
+
+  async function publish() {
+    setPublishing(true);
+    setError(null);
+    try {
+      setPublished(await publishProjectBrief(projectId));
+    } catch (err) {
+      setError(
+        err instanceof Error && err.message
+          ? `Could not publish this brief: ${err.message}`
+          : "Could not publish this brief just now.",
+      );
+    } finally {
+      setPublishing(false);
     }
   }
 
@@ -79,7 +108,7 @@ export function BriefSection({
           size="sm"
           variant="outline"
           className="ml-auto"
-          disabled={pending}
+          disabled={pending || publishing}
           aria-busy={pending}
           data-brief-regenerate
           onClick={regenerate}
@@ -87,6 +116,19 @@ export function BriefSection({
           <RefreshCw className={`mr-1.5 h-3.5 w-3.5${pending ? " animate-spin" : ""}`} />
           {pending ? "Regenerating…" : "Regenerate"}
         </Button>
+        {synthesized && (
+          <Button
+            size="sm"
+            variant="default"
+            disabled={pending || publishing}
+            aria-busy={publishing}
+            data-brief-publish
+            onClick={publish}
+          >
+            <Send className={`mr-1.5 h-3.5 w-3.5${publishing ? " animate-pulse" : ""}`} />
+            {publishing ? "Publishing…" : "Publish to brain"}
+          </Button>
+        )}
       </div>
 
       {/* A React text node — model output is never injected as markup. */}
@@ -105,6 +147,24 @@ export function BriefSection({
           : ""}
         {summary.themes.length > 0 ? ` · themes: ${summary.themes.join(", ")}` : ""}
       </p>
+
+      {published && (
+        <p className="mt-3 text-[11px] text-muted-foreground" data-brief-published>
+          {published.duplicate
+            ? "Already proposed — this exact brief is in the review queue."
+            : "Proposed for review"} — a `brief` proposal on {published.pageSlug}, citing{" "}
+          {published.provenance.modelId} at {published.provenance.generatedAt}. Nothing is written to
+          the brain until you accept it in{" "}
+          {published.pageHref ? (
+            <a className="underline" href="/app/proposals">
+              the proposal queue
+            </a>
+          ) : (
+            "the proposal queue"
+          )}
+          .
+        </p>
+      )}
 
       {error && (
         <p

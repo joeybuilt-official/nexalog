@@ -27,8 +27,13 @@
 import { sql } from "drizzle-orm";
 
 import {
+  PublishProjectBrief,
+  BriefPublishError,
+  PROJECT_SLUG_PREFIX,
   ReconcilePlanImpact,
   type CaptureReconciliationReader,
+  type PublishProjectBriefResult,
+  type PublishableBrief,
   type ReconciliationCapture,
 } from "@nexalog/core";
 import { GbrainProjectRelevanceIndex } from "@nexalog/adapters";
@@ -36,6 +41,13 @@ import { GbrainProjectRelevanceIndex } from "@nexalog/adapters";
 import { db } from "@/lib/db";
 import { getComposition } from "@/composition";
 import { getProposalQueue } from "@/lib/proposals/queue";
+import { getProjectAddress, getProjectNoteTitles } from "@/lib/projects/store";
+import {
+  PROJECT_TYPE,
+  idSegment,
+  projectPageSlug,
+  projectSlugSegment,
+} from "@/lib/projects/publish";
 import {
   clampPlanImpactLimit,
   liveLinkCaptureFilter,
@@ -187,4 +199,183 @@ export async function runPlanImpactReconcilePass(
   });
 
   return { configured: true, since: since.toISOString(), limit, ...result };
+}
+
+// ── publishing a project's BRIEF ────────────────────────────────────────────
+//
+// The publish pass lives HERE, beside the reconcile pass, for the same reason the
+// reconcile pass does: it is the edge that owns IO. Three collaborators, two
+// databases:
+//
+//   1. the project + its linked notes — `nexalog`, in the APP's database;
+//   2. the brain's search index      — gbrain, read-only, to resolve the PAGE;
+//   3. the proposal queue            — `take_proposals`, in GBRAIN's database.
+//
+// The pass on the page has already SYNTHESIZED a brief, and that exact brief is
+// what gets published: this function never calls a model, so pressing Publish
+// twice on one page cannot publish two different texts. What it may do is resolve
+// the project's brain page (one read-only search), and that is the only extra work.
+//
+// The refusals are `@nexalog/core`'s rules, carried out here rather than decided
+// here: `BriefPublishError` propagates with its own code so the route maps one
+// code to one status.
+
+/**
+ * The outcome of a publish, as the route reports it.
+ *
+ * `created: false` is SUCCESS: the queue already held this exact brief. Reporting
+ * it as an error would make the action look unsafe to press twice, which is
+ * exactly the property the content hash exists to give.
+ */
+export interface PublishBriefPassResult {
+  duplicate: boolean;
+  proposalId: number;
+  pageSlug: string;
+  modelId: string;
+  generatedAt: string;
+  contentHash: string;
+}
+
+/**
+ * Publish one synthesized brief for one project.
+ *
+ * @param workspaceIds the CALLER's workspaces — the ownership guard, resolved by
+ *        the route from the session and never from the request body.
+ */
+export async function publishProjectBriefPass(input: {
+  workspaceIds: string[];
+  projectId: string;
+  brief: PublishableBrief;
+  sourceId?: string;
+}): Promise<PublishBriefPassResult> {
+  // The refusal happens BEFORE any queue work — a fallback digest is turned away
+  // with a typed code and touches nothing.
+  if (input.brief.state !== "synthesized") {
+    throw new BriefPublishError({
+      code: "not_synthesized",
+      message:
+        "This brief is a mechanical digest of the project's own data rather than a synthesis, " +
+        "so it is not published to the brain.",
+    });
+  }
+
+  const address = await getProjectAddress(input.workspaceIds, input.projectId);
+  if (!address) {
+    throw new BriefPublishError({
+      code: "missing_project",
+      message: "No project with that id is visible to you.",
+    });
+  }
+
+  const queue = getProposalQueue();
+  if (!queue) throw new BriefQueueUnavailable();
+
+  const [pageSlug, noteTitles] = await Promise.all([
+    resolveProjectPageSlug(address),
+    getProjectNoteTitles(input.workspaceIds, input.projectId),
+  ]);
+
+  const result: PublishProjectBriefResult = await new PublishProjectBrief(queue).execute({
+    brief: input.brief,
+    project: {
+      id: address.id,
+      name: address.name,
+      pageSlug,
+      sourceId: input.sourceId ?? "default",
+    },
+    evidenceNoteTitles: noteTitles,
+    ...(input.sourceId ? { sourceId: input.sourceId } : {}),
+  });
+
+  return {
+    duplicate: !result.created,
+    proposalId: result.proposalId,
+    pageSlug: result.pageSlug,
+    modelId: result.modelId,
+    generatedAt: result.generatedAt,
+    contentHash: result.contentHash,
+  };
+}
+
+/**
+ * Where the project lives in the brain, in three rounds — cheapest and most
+ * trustworthy first:
+ *
+ *   1. the page whose slug IS this project's own id (`projects/<uuid>`), when the
+ *      push job has ever recorded one for this project. Asked directly, because
+ *      this is a "does this exact page exist" question and no search can answer
+ *      it reliably.
+ *   2. the page whose slug matches the project's NAME in slug form — the
+ *      operator's existing pages are named, and this is what makes publishing
+ *      work before any slug column exists. This asks the search for the name and
+ *      keeps only a page whose slug matches it exactly, so a high-cosine
+ *      NEIGHBOR (the whole project directory is a neighborhood in this brain)
+ *      cannot win.
+ *   3. otherwise the SYNTHESIZED address from `projectPageSlug`, which is stable
+ *      and valid but very likely not a page yet. It is proposed anyway rather
+ *      than refused: the proposal is the operator's decision surface, and one
+ *      addressed to a page that does not exist yet is readable, rejectable, and
+ *      does not silently drop the brief on the floor.
+ *
+ * A brain that is unreachable does NOT fail the publish: an absent client, a
+ * failed lookup and a failed search all fall through to round 3 — the proposal is
+ * made with the honest, synthesized address instead of a fabricated match.
+ */
+async function resolveProjectPageSlug(address: {
+  id: string;
+  name: string;
+  parentName: string | null;
+}): Promise<string> {
+  const synthesized = projectPageSlug(address);
+
+  const client = getComposition().gbrain;
+  if (!client) return synthesized;
+
+  // Round 1 — the id-addressed page, if this project has one.
+  const byId = `${PROJECT_SLUG_PREFIX}${idSegment(address.id)}`;
+  try {
+    const page = await client.getPage(byId);
+    if (page && page.slug.trim() !== "") return page.slug.trim();
+  } catch {
+    // fall through to the name round
+  }
+
+  // Round 2 — a page whose slug IS this project's name in slug form.
+  const nameSegment = projectSlugSegment(address.name);
+  if (nameSegment) {
+    const expected = `${PROJECT_SLUG_PREFIX}${nameSegment}`;
+    try {
+      const hits = await client.search(address.name, { limit: 10, types: [PROJECT_TYPE] });
+      const match = hits.find((hit) => hit.slug.toLowerCase() === expected.toLowerCase());
+      if (match) return match.slug.trim();
+    } catch {
+      // fall through to the synthesized address
+    }
+  }
+
+  return synthesized;
+}
+
+/**
+ * A typed "no queue here" failure, distinct from a queue error: the route turns
+ * it into `503 gbrain_unavailable` with the repo's own `not_configured` code,
+ * never into a 500 and never into a fabricated success.
+ */
+export class BriefQueueUnavailable extends Error {
+  readonly code = "not_configured";
+  constructor() {
+    super(
+      "This deployment has no gbrain database configured (GBRAIN_DATABASE_URL is unset), " +
+        "so a brief cannot be published here.",
+    );
+    this.name = "BriefQueueUnavailable";
+  }
+}
+
+/** The linked-note titles a published brief cites. Title-only; see the store. */
+export async function briefEvidenceNoteTitles(
+  workspaceIds: string[],
+  projectId: string,
+): Promise<string[]> {
+  return getProjectNoteTitles(workspaceIds, projectId);
 }

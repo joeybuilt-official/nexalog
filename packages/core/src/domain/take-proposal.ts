@@ -41,6 +41,7 @@
 import type { PlanDiff } from "./plan-impact";
 export type { PlanDiff };
 export { PLAN_CHANGE_KIND } from "./plan-impact";
+import type { BriefDiff } from "./plan-impact";
 
 /** The four canonical kinds gbrain's extractor emits. */
 export const TAKE_KINDS = ["fact", "take", "bet", "hunch"] as const;
@@ -70,12 +71,17 @@ export interface TakeProposal {
   actedAt: Date | null;
   actedBy: string | null;
   /**
-   * The structured payload of a `kind = 'plan_change'` proposal; null on every
-   * other kind (and on every row written before the column existed). Parsed
-   * defensively — see `parsePlanDiff` — so a hand-edited or foreign-written value
-   * degrades to null rather than reaching a render.
+   * The structured payload this app's own producers wrote, TYPED BY KIND: a
+   * `plan_change` carries a `PlanDiff`, a published brief carries a `BriefDiff`
+   * (a `brief/1` block), and every other kind carries null.
+   *
+   * One column and one union rather than a field per kind: `take_proposals` is
+   * gbrain's table, and a column added to it constrains gbrain's own future
+   * INSERTs. Parsed defensively — `parsePlanDiff` and `parseBriefDiff` each
+   * refuse the other's block on the `type` marker — so a hand-edited or
+   * foreign-written value degrades to null rather than reaching a render.
    */
-  planDiff: PlanDiff | null;
+  planDiff: PlanDiff | BriefDiff | null;
 }
 
 /** Counts per status over the WHOLE queue, not just the returned page. */
