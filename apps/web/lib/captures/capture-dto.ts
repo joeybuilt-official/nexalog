@@ -13,7 +13,7 @@
  *     is normalized HERE, once, by the same `describeProposal` the web surface
  *     renders through, so every consumer sees the same shape.
  *   - Field names and types are stable and explicit. Per
- *     `.claude/rules/api-design.md` ("One canonical shape per entity"), a field
+ *     `.agents/rules/api-design.md` ("One canonical shape per entity"), a field
  *     is never renamed or retyped between endpoints.
  *
  * Pure functions only — no DB, no fs, no React — so the mapping is

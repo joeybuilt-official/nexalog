@@ -3,7 +3,7 @@
  * The proposal wire shape — one mapper from the domain type to the DTO, so the
  * list route and the accept/reject route cannot describe the same row two ways.
  *
- * Dates go over the wire as ISO-8601 instants (`.claude/rules/api-design.md`:
+ * Dates go over the wire as ISO-8601 instants (`.agents/rules/api-design.md`:
  * "timestamps go over the wire as unambiguous instants in a single documented
  * format"), and every id stays a number — a proposal id is a bigint sequence,
  * not a uuid, and stringifying it here would hide that from the client that has

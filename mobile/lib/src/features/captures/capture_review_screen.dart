@@ -38,7 +38,7 @@ class _CaptureReviewScreenState extends ConsumerState<CaptureReviewScreen> {
   final Set<String> _pending = <String>{};
 
   /// Inline per-row failure, keyed by capture id. Never a silent no-op: the row
-  /// says what the server said (`.claude/rules/error-handling.md`).
+  /// says what the server said (`.agents/rules/error-handling.md`).
   final Map<String, String> _errors = <String, String>{};
 
   /// Rows the operator just resolved, so the list can show the outcome before

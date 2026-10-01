@@ -8,7 +8,7 @@
  * adapter) implements it at the edge. Nothing inward of an adapter may name a
  * provider, a model identifier, or a vendor's response shape — a use case that
  * branches on which model answered has hardcoded a Detail into a business rule
- * (`.claude/rules/ai-features.md`, ADR-0014/0017).
+ * (`.agents/rules/ai-features.md`, ADR-0014/0017).
  *
  * This file is pure: types only, plus the typed error shape. It imports nothing
  * and can be depended on from anywhere.

@@ -44,8 +44,9 @@ next-env.d.ts
 
 # ---------------------------------------------------------------------------
 # Agent / Phalanx loop state — machine-local, never commit.
-# See PANOPLY-OPTIMIZATION.md and .claude/rules/documentation.md.
+# See PANOPLY-OPTIMIZATION.md and .agents/rules/documentation.md.
 # ---------------------------------------------------------------------------
+.claude/
 .claude-state.json
 .claude/settings.local.json
 .claude/worktrees/
@@ -67,7 +68,8 @@ next-session.txt
 # ---------------------------------------------------------------------------
 # Legacy artifact snapshots — machine-local scratch the operator keeps on disk.
 # Full ANCHORED paths, never a glob: a bare `*.bak` would swallow any legitimate
-# backup file anywhere in the tree. `.claude-state.json` and `next-session.txt`
+# backup file anywhere in the tree. `.claude/
+.claude-state.json` and `next-session.txt`
 # are already covered by the block above (no duplicates here).
 # ---------------------------------------------------------------------------
 /apps/web/app/(auth)/login/login-form.tsx.bak-plexologin-20260827
@@ -82,3 +84,16 @@ next-session.txt
 # the initial release — has been deleted. Anchoring this to a directory would leave the
 # same hole one level over.
 *.tmp
+
+# Generated tool-native mirrors — canonical source is .agents/ + AGENTS.md.
+# Run `sh scripts/sync-agents.sh` to produce the mirrors for the tools you use.
+.cursor/
+.clinerules/
+.windsurf/
+.github/copilot-instructions.md
+GEMINI.md
+CONVENTIONS.md
+*.mdc
+
+# Generated tool-native mirrors — canonical source is .agents/ + AGENTS.md
+CLAUDE.md

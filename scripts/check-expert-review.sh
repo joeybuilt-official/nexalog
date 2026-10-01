@@ -20,27 +20,27 @@ cd "$ROOT"
 
 # verify_review_evidence <label>
 # Checks for:
-# 1. a plan doc exists under docs/claude/**
-# 2. a checklist item exists somewhere under docs/claude/** (checked or unchecked)
+# 1. a plan doc exists under docs/agents/**
+# 2. a checklist item exists somewhere under docs/agents/** (checked or unchecked)
 # 3. (opt-in, EXPERT_REVIEW_REQUIRE_SIGNOFFS=1) the PR body carries >=2 persona sign-offs
 verify_review_evidence() {
   label="$1"
 
   # 1. plan.md exists (any area)
-  if ! find docs/claude -name "plan.md" -type f 2>/dev/null | grep -q .; then
-    echo "check-expert-review: $label — no plan.md found in docs/claude/**" >&2
+  if ! find docs/agents -name "plan.md" -type f 2>/dev/null | grep -q .; then
+    echo "check-expert-review: $label — no plan.md found in docs/agents/**" >&2
     return 1
   fi
 
-  # 2. a checklist item exists somewhere under docs/claude/**.
+  # 2. a checklist item exists somewhere under docs/agents/**.
   #
   # Deliberately NOT "a checklist.md containing an UNCHECKED item", which is what this used to
   # demand. That was wrong twice over. It required a separate checklist.md, but every repo
   # surveyed keeps its checklist inside plan.md; and it required an OPEN item, so a repo that
   # finished its work — the definition of done — was blocked from committing until someone added
   # a fake open task. The gate asks whether review evidence EXISTS, not whether work remains.
-  if ! grep -rlE '^[[:space:]]*- \[[ xX]\]' docs/claude 2>/dev/null | grep -q .; then
-    echo "check-expert-review: $label — no checklist item found under docs/claude/**" >&2
+  if ! grep -rlE '^[[:space:]]*- \[[ xX]\]' docs/agents 2>/dev/null | grep -q .; then
+    echo "check-expert-review: $label — no checklist item found under docs/agents/**" >&2
     echo "  add a '- [ ] <step>' list to the plan doc for this work" >&2
     return 1
   fi

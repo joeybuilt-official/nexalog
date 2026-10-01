@@ -21,7 +21,7 @@
  *     the bookmarks (the degrade semantics that existed before the fix).
  *
  * Postgres and GBrain are both faked at the module boundary (the repo's
- * convention for route tests, `.claude/rules/testing.md` → "Mocking"): the
+ * convention for route tests, `.agents/rules/testing.md` → "Mocking"): the
  * route's *fusion decision* is what is under test, not the database's.
  */
 

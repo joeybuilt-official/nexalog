@@ -21,7 +21,7 @@ export const LLM_REQUEST_TIMEOUT_MS = 30_000;
 /**
  * The embedded LLM endpoint's configuration, resolved ONCE from the
  * environment. Model identifiers are configuration, never literals at a call
- * site (`.claude/rules/ai-features.md`): a model upgrade is an env change, not
+ * site (`.agents/rules/ai-features.md`): a model upgrade is an env change, not
  * a code change.
  *
  *   LLM_BASE_URL  required — an OpenAI-compatible base URL, without `/v1`

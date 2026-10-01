@@ -1,11 +1,11 @@
 #!/usr/bin/env sh
 # panoply.sh — the Panoply kit's machine surface: detect, report, and seed.
 #
-# Why this exists: the kit could only be applied by a Claude Code slash-command prompt
-# (`.claude/commands/adapt-claude-setup.md`), and nothing recorded WHICH kit version a repo
-# received. So "not applied" and "applied in July" were indistinguishable to every agent that was
-# not Claude, and kit drift was invisible. This script is the check/apply entry point any agent or
-# CI can run: Hermes, Codex, Cursor, a cron, a pre-commit hook.
+# Why this exists: the kit could only be applied by a slash-command prompt
+# (`.agents/commands/adapt-agents-setup.md`), and nothing recorded WHICH kit version a repo
+# received. So "not applied" and "applied in July" were indistinguishable to every agent, and kit
+# drift was invisible. This script is the check/apply entry point any agent or CI can run: Hermes,
+# any agent, a cron, a pre-commit hook.
 #
 #   sh scripts/panoply.sh check [--quiet]   exit 0 = current, non-zero = action needed
 #   sh scripts/panoply.sh apply [--yes]     seed/refresh the DETERMINISTIC half of the kit
@@ -79,8 +79,8 @@ _kit_sha() {
 # The triad. Absent = never applied. Partial = a half-applied kit, which the kit's own docs call out
 # as the failure mode that "looks like a doc bug" (dead refs, missing spine).
 _REQUIRED_AGENTS="AGENTS.md"
-_REQUIRED_SPINE="docs/claude/roadmap.md"
-_REQUIRED_RULES=".claude/rules/clean-architecture.md"
+_REQUIRED_SPINE="docs/agents/roadmap.md"
+_REQUIRED_RULES=".agents/rules/clean-architecture.md"
 _MARKER_MIRROR="MIRROR:start"
 _MARKER_RULES="PANOPLY:RULES:BEGIN"
 
@@ -98,7 +98,7 @@ _inspect() {
       _status="partial"
       _reason="missing $_f"
       # Nothing at all present => absent, not partial.
-      if [ ! -f "$_REQUIRED_AGENTS" ] && [ ! -d docs/claude ] && [ ! -d .claude/rules ]; then
+      if [ ! -f "$_REQUIRED_AGENTS" ] && [ ! -d docs/agents ] && [ ! -d .agents/rules ]; then
         _status="absent"
         _reason="no kit markers found"
       fi
@@ -119,7 +119,7 @@ _inspect() {
     *)
       # NOTE: an `A && B && C=1` chain here would return non-zero when the tests fail, and `set -e`
       # would abort the whole check on a repo that merely is not the template. Use an if.
-      if [ -f scripts/init-template-repo.sh ] && [ -f .claude/commands/adapt-claude-setup.md ]; then
+      if [ -f scripts/init-template-repo.sh ] && [ -f .agents/commands/adapt-agents-setup.md ]; then
         _self=1
       fi
       ;;
@@ -130,7 +130,7 @@ _inspect() {
     # capital letters flags every correctly-adopted repo as unadapted — the always-red failure the
     # canary caught. An unfilled token is a NAME-like placeholder; prose metasyntax is not.
     _ph="$(grep -rlE '\{\{(PROJECT_NAME|ONE_LINE_DESCRIPTION|CORE_PILLARS|DEFAULT_BRANCH|PKG_MANAGER|LANGUAGE_RUNTIME|INSTALL_CMD|DEV_CMD|BUILD_CMD|TEST_CMD|LINT_CMD|FORMAT_CMD|TYPECHECK_CMD|COVERAGE_CHECK_CMD|CLIENT_STACK|SERVER_STACK|DATABASE_STACK|MONOREPO_LAYOUT|PROJECT_STRUCTURE|TEST_DIR|ENDPOINT_SRC_DIR|DOMAIN_DIR|USECASE_DIR|ADAPTER_DIR|INFRA_DIR|UI_PRIMITIVES_DIR|DOMAIN_COMPONENTS_DIR|PAGES_DIR|SCHEMA_FILE|MIGRATE_GEN_CMD|MIGRATE_APPLY_CMD|EXPORT_STYLE|FILE_NAMING|IMPORT_ALIAS|SHARED_CONSTANTS_PATH|API_WRAPPER|DATA_ACCESS_LAYER|DATA_FETCH_LIB|UI_FRAMEWORK|STYLING_SYSTEM|ICON_LIBRARY|ICON_SIZE|DESIGN_REFERENCE|AESTHETIC_FAMILY|CHROME_WEIGHT|PALETTE_STRATEGY|DENSITY|MOTION_INTENSITY|DEFAULT_TEXT_SIZE|SECTION_HEADER|FIELD_LABEL|FIELD_VALUE|SECTION_PADDING|ELEMENT_GAP|BORDER_TREATMENT|ARCH_CHECK_CMD|MIGRATE_[A-Z_]+|[A-Z_]*_CMD)\}\}' \
-      AGENTS.md CLAUDE.md docs/claude .claude/rules 2>/dev/null | head -5 || true)"
+      AGENTS.md docs/agents .agents/rules 2>/dev/null | head -5 || true)"
     if [ -n "$_ph" ]; then
       _status="placeholders"
       _reason="unfilled adapt tokens in: $(printf '%s' "$_ph" | tr '\n' ' ')"
@@ -157,7 +157,7 @@ _inspect() {
   if [ "$_status" = "current" ] && [ -f scripts/sync-agents.sh ]; then
     if ! sh scripts/sync-agents.sh --check >/dev/null 2>&1; then
       _status="drifted"
-      _reason="generated mirrors out of sync with .claude/rules (run: sh scripts/sync-agents.sh)"
+      _reason="generated mirrors out of sync with .agents/rules (run: sh scripts/sync-agents.sh)"
     fi
   fi
 
@@ -226,7 +226,7 @@ cmd_check() {
 }
 
 # apply: the DETERMINISTIC half only. Everything that requires judgement (filling {{TOKEN}}s,
-# pruning MODULE: blocks, merging a pre-existing CLAUDE.md/AGENTS.md) is emitted as a checklist —
+# pruning MODULE: blocks, merging a pre-existing AGENTS.md) is emitted as a checklist —
 # a script must never guess a command table or a layer map, and the kit's own applier forbids it.
 cmd_apply() {
   _yes=0
@@ -236,31 +236,31 @@ cmd_apply() {
   printf '==> panoply apply (deterministic half) — kit %s\n' "$(_kit_version)"
 
   # 1. Spine. Create only what is absent; never overwrite the repo's own docs.
-  mkdir -p docs/claude .claude/rules scripts
+  mkdir -p docs/agents .agents/rules scripts
   for _d in roadmap.md in-progress.md worklog.md; do
-    if [ ! -f "docs/claude/$_d" ] && [ -f "$_src/docs/claude/$_d" ]; then
-      cp "$_src/docs/claude/$_d" "docs/claude/$_d"; printf '    seeded docs/claude/%s\n' "$_d"
+    if [ ! -f "docs/agents/$_d" ] && [ -f "$_src/docs/agents/$_d" ]; then
+      cp "$_src/docs/agents/$_d" "docs/agents/$_d"; printf '    seeded docs/agents/%s\n' "$_d"
     fi
   done
 
   # 2. Rule modules. Never clobber an edited module — report the divergence instead.
-  for _m in "$_src"/.claude/rules/*.md; do
+  for _m in "$_src"/.agents/rules/*.md; do
     [ -f "$_m" ] || continue
     _b="$(basename "$_m")"
-    if [ ! -f ".claude/rules/$_b" ]; then
-      cp "$_m" ".claude/rules/$_b"; printf '    added .claude/rules/%s\n' "$_b"
-    elif ! cmp -s "$_m" ".claude/rules/$_b"; then
-      printf '    NOTE .claude/rules/%s differs from the kit — yours wins; review the kit CHANGELOG\n' "$_b"
+    if [ ! -f ".agents/rules/$_b" ]; then
+      cp "$_m" ".agents/rules/$_b"; printf '    added .agents/rules/%s\n' "$_b"
+    elif ! cmp -s "$_m" ".agents/rules/$_b"; then
+      printf '    NOTE .agents/rules/%s differs from the kit — yours wins; review the kit CHANGELOG\n' "$_b"
     fi
   done
 
   # 2b. The agent hub itself. Seed the TEMPLATE only when the repo has no hub of its own — its
   # tokens stay in place on purpose, which is what makes the next check report "unadapted" (13)
   # rather than "half-applied (missing AGENTS.md)" (11). Without this, apply can never reach a
-  # state the agent can finish from: every adoption would stall until someone hand-wrote a hub
-  # from scratch. A repo with its own AGENTS.md or CLAUDE.md is left completely alone here; the
-  # agent merges the kit's structure into it as checklist step 3.
-  if [ ! -f AGENTS.md ] && [ ! -f CLAUDE.md ] && [ -f "$_src/AGENTS.md" ]; then
+  # state an agent can finish from: every adoption would stall until someone hand-wrote a hub
+  # from scratch. A repo with its own AGENTS.md is left completely alone here; the agent merges the
+  # kit's structure into it as checklist step 3.
+  if [ ! -f AGENTS.md ] && [ -f "$_src/AGENTS.md" ]; then
     cp "$_src/AGENTS.md" AGENTS.md
     printf '    seeded AGENTS.md (kit template — fill its {{TOKENS}})\n'
   fi
@@ -273,7 +273,7 @@ cmd_apply() {
   # for a deliberate refresh, so the destructive path is always a stated choice.
   _force_scripts=0
   for a in "$@"; do [ "$a" = "--force-scripts" ] && _force_scripts=1; done
-  for _s in panoply.sh panoply.test.sh sync-agents.sh check-docs.sh check-plan-home.sh; do
+  for _s in panoply.sh panoply.test.sh sync-agents.sh check-docs.sh check-plan-home.sh check-algorithm.sh check-algorithm.test.sh; do
     [ -f "$_src/scripts/$_s" ] || continue
     if [ ! -f "scripts/$_s" ]; then
       cp "$_src/scripts/$_s" "scripts/$_s" && chmod +x "scripts/$_s"
@@ -299,9 +299,12 @@ cmd_apply() {
        cannot fill with a verified value (an unfillable rule teaches the model to skim).
     2. Prune <!-- MODULE:x --> blocks that do not apply, and delete the rules files + @-imports
        they own. Never delete clean-architecture.md, workflow.md, or quality-bar.md.
-    3. Merge — never overwrite — a pre-existing CLAUDE.md / AGENTS.md (the repo's own rules win).
+    3. Merge — never overwrite — a pre-existing AGENTS.md (the repo's own rules win).
     4. Run:  sh scripts/sync-agents.sh      (mirrors must be generated AFTER pruning)
-    5. Run:  sh scripts/check-docs.sh && sh scripts/panoply.sh check
+    5. Run:  sh scripts/check-docs.sh && sh scripts/check-plan-home.sh && sh scripts/panoply.sh check
+    6. Wire the Algorithm gate into CI (verify.yml: `sh scripts/check-algorithm.sh --since <base>`)
+       and, where the repo has one, its pre-commit hook (`--staged`). It requires the plan doc's
+       "Deletion candidates" section on a structural change — see .agents/rules/algorithm.md.
 
   A script this repo already had and has since edited was KEPT, not replaced (see any "KEPT scripts/"
   line above). Review it against the kit's copy and re-run with `apply --force-scripts` only when

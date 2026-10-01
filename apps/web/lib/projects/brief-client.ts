@@ -2,7 +2,7 @@
 
 /**
  * The client-side call for a project's brief, kept in the owning feature module
- * rather than in a component body (`.claude/rules/frontend.md`: never call the
+ * rather than in a component body (`.agents/rules/frontend.md`: never call the
  * raw HTTP primitive from a component). The response type is imported from the
  * pure module, so the wire shape and the server's type cannot drift.
  */

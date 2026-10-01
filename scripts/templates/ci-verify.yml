@@ -19,10 +19,10 @@
 #
 # NOT WIRED, deliberately: `scripts/check-expert-review.sh`. The script is current (re-synced to the
 # kit's fixed body) and would pass on this repo today — a `plan.md` and a `checklist.md` with pending
-# items both exist under `docs/claude/`. It is left out because enabling it would silently add a merge
+# items both exist under `docs/agents/`. It is left out because enabling it would silently add a merge
 # requirement for every future PR, which is an operator decision. The earlier note here ("the gate can
 # never pass as written — nexalog keeps its checklists at the repo root") is obsolete: those
-# checklists moved into `docs/claude/<area>/<slug>/`.
+# checklists moved into `docs/agents/<area>/<slug>/`.
 #
 # WIRED 2026-09-25: the architecture-boundary check (`pnpm depcruise`, config `.dependency-cruiser.cjs`).
 
@@ -52,12 +52,12 @@ jobs:
 
       # Agent-mirror drift — fails if any tool-native file (.cursor/.clinerules/.windsurf/.github/
       # copilot-instructions.md, GEMINI.md, CONVENTIONS.md) or the AGENTS.md rules block is stale vs
-      # AGENTS.md + .claude/rules/*.md. This is what keeps every tool's inlined ruleset honest.
+      # AGENTS.md + .agents/rules/*.md. This is what keeps every tool's inlined ruleset honest.
       - name: Agent mirrors in sync
         run: sh scripts/sync-agents.sh --check
 
       # Docs landing gate — fails if any commit in this PR changed code but not the worklog.
-      # Nexalog has no CHANGELOG.md/HISTORY.md, so check-docs.sh resolves to docs/claude/worklog.md.
+      # Nexalog has no CHANGELOG.md/HISTORY.md, so check-docs.sh resolves to docs/agents/worklog.md.
       - name: Docs in sync
         run: sh scripts/check-docs.sh --since "${{ github.event.pull_request.base.sha }}"
         if: github.event_name == 'pull_request'

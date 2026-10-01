@@ -20,7 +20,7 @@
 /// from a page/node type string to a token is in [gardenNodeColor] et al below.
 ///
 /// **Honest limits of this port** (see the PR and
-/// `docs/claude/platform/mobile/parity.md` §4.2): the *garden surface* itself
+/// `docs/agents/platform/mobile/parity.md` §4.2): the *garden surface* itself
 /// (`/app/graph`) is still unported, and [buildNexalogTheme] still derives its
 /// Material [ColorScheme] from the copper accent seed rather than replacing it
 /// token-by-token. The tokens are now the app's single source of colour truth;

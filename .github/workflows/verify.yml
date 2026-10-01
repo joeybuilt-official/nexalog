@@ -1,7 +1,7 @@
 # verify — the ONE plane that binds every agent, in any tool.
 #
 # Installed 2026-09-20 from `scripts/templates/ci-verify.yml` (the template keeps the full rationale).
-# Before this file existed nexalog had **no CI at all** and **no `.claude/settings.json` permission
+# Before this file existed nexalog had **no CI at all** and **no tool-specific permission
 # gate**, which made every guardrail in AGENTS.md advisory prose for every harness — Claude Code
 # included. A required status check is what actually blocks a bad merge, because it runs on the
 # server, not on anyone's machine, and cannot be skipped with `--no-verify`.
@@ -18,14 +18,14 @@
 #
 # NOT WIRED, deliberately: `scripts/check-expert-review.sh`. The script itself is current (re-synced
 # to the kit's fixed body) and would pass on this repo today — a `plan.md` and a `checklist.md` with
-# pending items both exist under `docs/claude/`. It is left out for a different reason: enabling it
+# pending items both exist under `docs/agents/`. It is left out for a different reason: enabling it
 # would silently add a merge requirement for every future PR, which is an operator decision, not one
 # to take in a governance-refresh batch. The earlier note here ("the gate can never pass as written —
-# nexalog keeps its checklists at the repo root") is obsolete; the pre-`docs/claude/` checklists moved
+# nexalog keeps its checklists at the repo root") is obsolete; the pre-`docs/agents/` checklists moved
 # into the area folders. Re-enable only on an explicit decision.
 #
 # WIRED 2026-09-25: the architecture-boundary check (`pnpm depcruise`, config `.dependency-cruiser.cjs`).
-# It was the missing gate called out in `.claude/rules/clean-architecture.md` → "Known gaps" — the
+# It was the missing gate called out in `.agents/rules/clean-architecture.md` → "Known gaps" — the
 # dependency rule for core/adapters/web-lib is now machine-checked on every PR instead of review-only.
 
 name: verify
@@ -54,18 +54,18 @@ jobs:
 
       # Agent-mirror drift — fails if any tool-native file (.cursor/.clinerules/.windsurf/.github/
       # copilot-instructions.md, GEMINI.md, CONVENTIONS.md) or the AGENTS.md rules block is stale vs
-      # AGENTS.md + .claude/rules/*.md. This is what keeps every tool's inlined ruleset honest.
+      # AGENTS.md + .agents/rules/*.md. This is what keeps every tool's inlined ruleset honest.
       - name: Agent mirrors in sync
         run: sh scripts/sync-agents.sh --check
 
       # Docs landing gate — fails if any commit in this PR changed code but not the worklog.
-      # Nexalog has no CHANGELOG.md/HISTORY.md, so check-docs.sh resolves to docs/claude/worklog.md.
+      # Nexalog has no CHANGELOG.md/HISTORY.md, so check-docs.sh resolves to docs/agents/worklog.md.
       - name: Docs in sync
         run: sh scripts/check-docs.sh --since "${{ github.event.pull_request.base.sha }}"
         if: github.event_name == 'pull_request'
 
       # The plan-spine home check, per the Panoply kit: a plan is a roadmap row
-      # plus docs/claude/<area>/<feature>/plan.md — a stray PLAN.md / <x>-plan.md
+      # plus docs/agents/<area>/<feature>/plan.md — a stray PLAN.md / <x>-plan.md
       # elsewhere is stale by definition. Shipped by the kit adoption.
       - name: Plan home
         run: sh scripts/check-plan-home.sh
@@ -74,7 +74,7 @@ jobs:
         run: pnpm typecheck
 
       # Architecture boundaries — inward-only Clean Architecture. Wired 2026-09-25; closes the
-      # "no import-boundary linter" gap in .claude/rules/clean-architecture.md → "Known gaps".
+      # "no import-boundary linter" gap in .agents/rules/clean-architecture.md → "Known gaps".
       # `error` rules (core purity, layer direction, lib-no-UI) fail the build; the 9
       # `web-lib-no-direct-db` violations are baselined as `warn` — ratchet to `error` once the
       # slices move storage behind adapters.

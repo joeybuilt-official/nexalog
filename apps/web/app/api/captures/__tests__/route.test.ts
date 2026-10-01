@@ -4,7 +4,7 @@
  * the native mobile app) reads so it can show the operator which captures
  * await a decision.
  *
- * Asserts, per `.claude/rules/testing.md` → "What an endpoint test asserts":
+ * Asserts, per `.agents/rules/testing.md` → "What an endpoint test asserts":
  *   - success with the exact response shape (field names, types, nesting) —
  *     including the normalized proposal, which is the whole reason the client
  *     can judge a capture without a second request;

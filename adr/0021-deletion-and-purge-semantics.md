@@ -18,7 +18,7 @@
 - **Related**: `adr/0016-passkey-webauthn-identity-root.md` (identity root);
   `db/migrations/0000_nexalog-v2-bootstrap.sql` (the shared-`auth` note — "single login universe");
   `adr/0018-projects-reference-based-containers.md` (deletion never cascades to a member);
-  `docs/claude/in-progress.d/pkm-expansion-tiers.md` (the queue fragment for the exit door).
+  `docs/agents/in-progress.d/pkm-expansion-tiers.md` (the queue fragment for the exit door).
 
 ## Context
 

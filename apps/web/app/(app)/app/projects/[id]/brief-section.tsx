@@ -7,7 +7,7 @@
 // The component renders and dispatches; it decides nothing. Whether a brief is a
 // synthesis or a fallback, and what a fallback says, is the pure module's rule
 // (`@/lib/projects/brief`); the network call lives in the feature module
-// (`@/lib/projects/brief-client`), not in this body (`.claude/rules/frontend.md`).
+// (`@/lib/projects/brief-client`), not in this body (`.agents/rules/frontend.md`).
 //
 // The markdown is rendered as SOURCE TEXT, deliberately: rendering model output
 // as HTML would be an injection surface, and the repo already renders an

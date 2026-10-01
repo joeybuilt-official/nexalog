@@ -132,7 +132,7 @@ disagreeing with a number they can see, and can reject in one two-step click.
 drops nothing; the migration is hand-applied and recorded at
 `db/gbrain/0001_take_proposals_plan_diff.sql` rather than in `apps/web/drizzle/`,
 because that chain is `nexalog`-scoped and its journal belongs to a sibling app
-(`.claude/rules/database.md` → "This repository runs against a SHARED database").
+(`.agents/rules/database.md` → "This repository runs against a SHARED database").
 
 **Not covered, stated plainly.** The reconciler proposes; it does not write a plan.
 Accepting a plan change promotes the claim as a **take** on the project page — the

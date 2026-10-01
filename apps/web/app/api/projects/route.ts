@@ -9,7 +9,7 @@
  * Workspace scoping is the whole authorization model here: every read and write
  * goes through a `workspaceIds` list resolved from the session, so a project id
  * belonging to another workspace answers 404 and never leaks its existence.
- * (`.claude/rules/api-design.md` → "enforce it per record, not just per route".)
+ * (`.agents/rules/api-design.md` → "enforce it per record, not just per route".)
  */
 
 import { getAuthUser } from "@/lib/auth/server";

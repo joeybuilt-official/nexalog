@@ -1,5 +1,5 @@
 // dependency-cruiser config for nexalog.
-// Inward-only Clean Architecture guard, encoding .claude/rules/clean-architecture.md → Review
+// Inward-only Clean Architecture guard, encoding .agents/rules/clean-architecture.md → Review
 // checklist item 1 (import direction) + the locked decisions (core = pure TS, zero runtime deps;
 // adapters depend on core only).
 //

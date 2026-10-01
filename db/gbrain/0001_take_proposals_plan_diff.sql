@@ -35,7 +35,7 @@
 -- targets, and NOT in the `nexalog` schema. The two are different servers on
 -- different Docker networks. This file is therefore NOT part of `apps/web/drizzle/`
 -- (that chain is `nexalog`-scoped and its journal belongs to a sibling app; see
--- `.claude/rules/database.md` → "This repository runs against a SHARED database").
+-- `.agents/rules/database.md` → "This repository runs against a SHARED database").
 -- It is hand-applied — with a reviewed, ON_ERROR_STOP psql session — and it is the
 -- RECORD, not the applier. Imitated in form from
 -- `apps/web/drizzle/0028_project_items_kind_project.sql`.

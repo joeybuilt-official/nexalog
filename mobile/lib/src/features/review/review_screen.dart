@@ -149,7 +149,7 @@ class ReviewCard extends StatelessWidget {
                 // There is therefore no web value to port. Rather than invent a
                 // colour, this uses the garden's real accent pair so the badge
                 // stays distinct; the gap is recorded in the PR and in
-                // docs/claude/platform/mobile/parity.md §4.2.
+                // docs/agents/platform/mobile/parity.md §4.2.
                 if (item.isNew)
                   _Badge("New", tokens.surface2, tokens.accent),
                 if (item.kind != null) _Badge(item.kind!, tokens.muted, tokens.mutedForeground),

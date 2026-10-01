@@ -19,7 +19,7 @@
 - **Owner**: operator (this gate) · build agent (implementation, after approval)
 - **One-way door**: the bundle layout, the `manifest.json` keys, and the `export_events` record become a long-term contract that users and external tools depend on. Adding keys is safe; renaming or removing one is breaking.
 - **Supersedes (for v2)**: ADR-0002 (data export & portability format) and ADR-0009 (data export format) — both were written against the **v1 Postgres content model**. Neither is deleted; both stay as the historical record, and this ADR does not edit their decisions.
-- **Related**: `docs/claude/platform/pkm-expansion/plan.md` §1.4 · ADR-0014/0015 (ports + adapters) · `.claude/rules/clean-architecture.md` · `.claude/rules/database.md` · `.claude/rules/data-modeling.md`
+- **Related**: `docs/agents/platform/pkm-expansion/plan.md` §1.4 · ADR-0014/0015 (ports + adapters) · `.agents/rules/clean-architecture.md` · `.agents/rules/database.md` · `.agents/rules/data-modeling.md`
 - **Deletion half**: `adr/0021-deletion-and-purge-semantics.md` — the operator's 2026-09-26
   approval split all deletion semantics out of this ADR; D4.2/D4.3 below are the *input* to that
   record, not a decision made here.

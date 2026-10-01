@@ -125,7 +125,7 @@ class SurfaceError implements Exception {
     final String? message = body["message"]?.toString();
 
     // The server's explicit unavailability signal — match on the stable code,
-    // not on wording (clients branch on codes; `.claude/rules/api-design.md`).
+    // not on wording (clients branch on codes; `.agents/rules/api-design.md`).
     if (code == "surface_unavailable") {
       return SurfaceError(
         failure: SurfaceFailure.unavailable,
