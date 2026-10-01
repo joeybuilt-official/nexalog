@@ -16,6 +16,7 @@ import {
   getProject,
   getProjectNotes,
   listGroupableCandidates,
+  loadProjectBriefSource,
   type GroupedUnit,
 } from "@/lib/projects/store";
 import {
@@ -25,8 +26,13 @@ import {
   type ItemKind,
 } from "@/lib/projects/domain";
 import { buildProjectNotesView } from "@/lib/projects/notes";
+import { assembleProjectBriefInput } from "@/lib/projects/brief";
+import { synthesizeProjectBrief } from "@/lib/projects/brief-service";
+import { resolveIntelligence } from "@/lib/intelligence/resolve";
+import { logEvent } from "@/lib/logger";
 import { Badge } from "@/components/ui/badge";
 import { ChevronRight, FolderKanban, Notebook, Bookmark, FileText } from "lucide-react";
+import { BriefSection } from "./brief-section";
 import { ProjectControls } from "./project-controls";
 import { ReparentControl } from "./reparent-control";
 import { AddItemForm } from "./add-item-form";
@@ -87,13 +93,27 @@ export default async function ProjectDetailPage({
   const project = await getProject(workspaceIds, id);
   if (!project) notFound();
 
-  // The notes are read SEPARATELY from `project.units`, because they are the one
-  // member kind whose list needs its own columns: the note's date and a bounded
-  // excerpt of its body (never the body). `units` carries titles only.
-  const [candidates, noteRows] = await Promise.all([
+  // The brief's source is loaded alongside the other reads — it needs the project
+  // record (already in hand, so no second fetch of it) plus the linked notes'
+  // metadata and the workspace themes. Nothing here reads a note body.
+  const now = new Date();
+  const [candidates, noteRows, briefSource] = await Promise.all([
     listGroupableCandidates(workspaceIds),
     getProjectNotes(workspaceIds, id),
+    loadProjectBriefSource(workspaceIds, project),
   ]);
+
+  // The pure module assembles the input; the use case synthesizes it through the
+  // IntelligencePort. With no model configured this is the labelled fallback —
+  // instant, and the page never blocks on a model it does not have.
+  const briefInput = assembleProjectBriefInput(briefSource, { now });
+  const brief = briefInput
+    ? await synthesizeProjectBrief(briefInput, {
+        intelligence: resolveIntelligence(),
+        now,
+        log: logEvent,
+      })
+    : null;
 
   // Grouped units are grouped by kind with the `project` kind separated out —
   // it IS the sub-project list, not a fourth pile of members.
@@ -150,6 +170,11 @@ export default async function ProjectDetailPage({
             ` · ${project.subProjectCount} ${project.subProjectCount === 1 ? "sub-project" : "sub-projects"}`}
         </p>
       </header>
+
+      {/* The BRIEF — what this project is, synthesized from the knowledge below.
+          Rendered from the server's own assembly so the first paint is complete;
+          with no model configured it is the labelled mechanical digest. */}
+      {brief && <BriefSection projectId={project.id} initialBrief={brief} />}
 
       <ProjectControls
         projectId={project.id}

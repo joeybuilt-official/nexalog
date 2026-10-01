@@ -90,3 +90,29 @@ All phases done. Migration 0012 applied to prod; commits <sha> (feat) + <sha> (b
 
 ## Guardrails (restated)
 No local AI pipeline · no Plexo Core change · no duplicated registry (Plexo holds pointer+history only) · no creator canvas · no hardcoded secrets · no rebuild of shipping code. On logic error: "Flaw identified. Correcting."
+
+## Project brief — SHIPPED 2026-10-01 (sub-feature; Phase 5 still operator-gated)
+
+A per-project **BRIEF**: a short, structured markdown summary of what the project is, its current
+state, active threads, recent activity and open questions.
+
+- **Pure assembly** — `apps/web/lib/projects/brief.ts`. Takes the project row, its linked notes'
+  metadata (title/date/size — **never content**), its sub-projects and the workspace themes its
+  notes match, and returns a deterministic input: five total comparators, code-point-bounded
+  truncation (living doc, note list, sub-project list, theme list), soft-deleted rows refused, a
+  recency window computed from an **injected** instant, and a `null` for a soft-deleted project.
+  Theme matching is a pure cosine over the notes' vectors against `memory_themes`' own centroids —
+  themes are **read**, never recomputed (the clustering pass is a separate change).
+- **Synthesis through the port** — `apps/web/lib/projects/brief-service.ts` calls an injected
+  `IntelligencePort`; the port is ADR-0014/0017's, implemented for the first time here as
+  `lib/intelligence/{port,embedded-adapter,resolve}.ts` (OpenAI-compatible, raw `fetch`, no SDK).
+  Prompt + tuning are a versioned template (`lib/intelligence/prompts.ts`); the model id is config
+  (`LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`).
+- **Degradation is the contract** — no model configured, a model error, or an empty answer all
+  return a clearly-labelled mechanical digest (`state: "fallback"` + a reason code), never a 5xx.
+- **Surface** — `GET|POST /api/projects/[id]/brief` (read / regenerate), and a `BriefSection` on the
+  detail page beside the existing sections, with a Regenerate control and all three async states.
+- **Not in this slice:** persistence (every brief is synthesized on demand), a Plexo federated
+  adapter (no agreed completion contract in this tree), provenance rows for model output, and any
+  recomputation of `memory_themes`.
+
