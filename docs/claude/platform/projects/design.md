@@ -325,6 +325,17 @@ words where they fire, because a limit the user cannot see reads as a bug. An
 archived parent is still rendered for any child that is rendered. Full shape:
 ADR-0001 Amendment A1 §A1.7.
 
+**Linked notes (2026-09-30).** The detail page gains a **Notes** section listing the
+project's `project_items(item_kind='note')` references, each with the note's own date
+and a one-line excerpt, and each linking to `/app/projects/<id>/notes/<noteId>` — an
+on-demand view that reads ONE note's body. The list never reads a body: a note is
+often a whole conversation and some rows exceed a million characters, so the list
+query selects `left(content, NOTE_EXCERPT_SOURCE_CHARS)` and every rule about the
+list (which rows survive — a soft-deleted note never renders; the order; the excerpt;
+the empty-state copy) lives in the pure `apps/web/lib/projects/notes.ts`. Notes are
+deliberately **not** also rendered in the grouped-knowledge piles: one page does not
+show a note twice.
+
 **Mobile**: the V2 Flutter surface has no Projects screen — it was stripped in
 `5d8a1a1` (`chore(mobile): strip to v2 surface`). Parity is an operator question
 (ADR-0018 #6), not an assumption. Note the mobile app *does* still drive
