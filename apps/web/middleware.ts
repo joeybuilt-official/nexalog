@@ -4,11 +4,30 @@ import { hostConfig } from "@/lib/hosts/config";
 import { requestHost, resolveHostRedirect } from "@/lib/hosts/split";
 
 const PUBLIC_PATHS = new Set(["/", "/login", "/signup", "/privacy", "/terms", "/cookie", "/refund"]);
-// /api/plexo/*  — service-key auth in handler (timing-safe Bearer)
-// /api/cron/*   — X-Cron-Secret auth in handler
-// Both are public at the middleware layer so the request reaches the
+// /api/plexo/*       — service-key auth in handler (timing-safe Bearer)
+// /api/cron/*        — X-Cron-Secret auth in handler
+// /api/plan-impact/* — X-Cron-Secret auth in handler (the reconcile pass's
+//                      scheduler door; `reconcile/route.ts` implements it)
+// These are public at the middleware layer so the request reaches the
 // per-route handler where the real auth gate lives.
-const PUBLIC_PREFIXES = ["/api/auth", "/api/health", "/api/plexo", "/api/cron", "/_next", "/favicon"];
+//
+// WHY the plan-impact entry is required, not cosmetic: this gate only admits a
+// request carrying a session cookie or a bearer token, and a scheduler sends
+// neither — it sends `X-Cron-Secret`. Without the prefix, the edge returned
+// `{"error":"Unauthorized"}` before the handler ran, so the cron door the route
+// documents was unreachable from any caller and the route's own constant-time
+// check could never execute. Adding it does NOT weaken auth: the handler still
+// 401s unless the secret matches or a session is present, and the secret is
+// compared in constant time there.
+const PUBLIC_PREFIXES = [
+  "/api/auth",
+  "/api/health",
+  "/api/plexo",
+  "/api/cron",
+  "/api/plan-impact",
+  "/_next",
+  "/favicon",
+];
 
 function isPublic(pathname: string): boolean {
   if (PUBLIC_PATHS.has(pathname)) return true;
