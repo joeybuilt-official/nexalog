@@ -6,7 +6,10 @@
   `mobile/lib/src/theme/app_theme.dart` (`nexalogColorScheme`). Next: run
   `flutter analyze` + `flutter test` in the mobile container, then walk the existing screens
   replacing any `Theme.of(context).colorScheme` reliance that still reads Material's defaults,
-  starting with `features/today/today_screen.dart`.
+  starting with `features/today/today_screen.dart`. **Milestone 3 began 2026-10-01 with
+  `/app/projects`** (browse half: `features/projects/`), which is why the next surface after the
+  screen audit is the project DETAIL surface (`/app/projects/[id]`) — the list deliberately does not
+  tap through to a route that does not exist.
 - **Roadmap initiative:** [`../../roadmap.md`](../../roadmap.md) — carries into the Plexo-moat arc
 - **Parent plan:** none
 
@@ -95,6 +98,11 @@ should not carry at all.
 | The Play Store screenshots/listing polish | **yes (deferred)** | Not asked for; it is marketing work with its own inputs (copy, store assets) and would be scope creep on a visual-identity fix. |
 | Building all 14 Partial surfaces in one pass | **yes (refused)** | A 14-surface PR cannot be reviewed, cannot fail cleanly, and would be the single most expensive thing to undo. Operator-prioritised, one batch at a time. |
 | **The whole request** | **no** | The operator's complaint is specific and the diagnosis is confirmed in code (`fromSeed` + unapplied tokens + 4 missing surfaces). Deleting it would leave an app he cannot use comfortably — rejection not warranted. |
+| The mobile Projects DETAIL surface (`/app/projects/[id]`) in this batch | **yes (deferred)** | Web has one; the native route does not exist. Building it (plus create/rename/delete/nest) is its own milestone — a list PR that also grew a detail surface could not be reviewed cleanly. The list therefore does NOT tap through, rather than linking to a route that 404s. |
+| Re-deriving the browse rules for Dart instead of porting them | **no — refused** | `apps/web/lib/projects/browse.ts` is the source of truth (41 tests). A second implementation is a second place for the A1.7 invariant to drift; the Dart module is a port and its tests mirror the web suite fixture-for-fixture. |
+| A project row's `parentId`/`itemCount`/`subProjectCount` faked from the mirror | **no — refused** | Those fields are not on the sync payload, so any value would be invented. The honest shape is to default them and RECORD the gap (§4.1-adjacent: the `project_items` edge table is not a synced entity), so the thin input is visible rather than a plausible-looking tree drawn from guesses. |
+| Rendering the whole web Projects page (create form, lifecycle transitions, reparent control) in this batch | **yes (refused)** | The request was the BROWSE screen — search, filter, sort, tree. The write half is a separate surface with its own refusal paths and belongs with the detail milestone. |
+| A second colour literal set for the project rows | **yes** | Row and badge colours come from `KnowledgeGardenTokens.of(context)`; the dim on a context row is `Opacity`, not a new colour, because the hardcoded-colour gate forbids `Colors.transparent` (it caught exactly that on the previous change). |
 
 ## Open questions
 

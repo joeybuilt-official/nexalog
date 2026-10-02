@@ -169,6 +169,7 @@ class _SidebarDrawer extends ConsumerWidget {
     ]),
     _NavGroup("Library", <_NavItem>[
       _NavItem("/app/notes", Icons.notes_outlined, "Notes"),
+      _NavItem("/app/projects", Icons.folder_outlined, "Projects"),
       _NavItem("/app/bookmarks", Icons.bookmark_outlined, "Bookmarks"),
     ]),
     _NavGroup("Workspace", <_NavItem>[
