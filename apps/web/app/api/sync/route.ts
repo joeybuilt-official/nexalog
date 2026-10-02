@@ -23,6 +23,8 @@
 import { getAuthUser } from "@/lib/auth/server";
 import { db, schema } from "@/lib/db";
 import { surfaceUnavailableIfMissingRelation } from "@/lib/db/surface-unavailable";
+import { getParentIdsFor, summariseCounts } from "@/lib/projects/store";
+import { enrichProjectRows } from "@/lib/sync/project-enrichment";
 import { and, eq, gt, isNull, isNotNull } from "drizzle-orm";
 
 const SYNC_TABLES = {
@@ -94,6 +96,18 @@ async function pullDelta(request: Request, userId: string) {
         ),
       );
     deletes[entity] = tombstoned.map((r) => r.id);
+  }
+
+  // Enrich mirrored `projects` rows with the edges and counts the mobile browse
+  // surface needs. These live in `project_items`, which is NOT a synced entity
+  // (it has no userId/updatedAt/deletedAt columns), so a client projecting a
+  // tree from `projects` alone would default to a flat list. The queries are the
+  // same batched helpers the web list uses — no SQL duplication.
+  if (changes.projects && changes.projects.length > 0) {
+    changes.projects = await enrichProjectRows(
+      changes.projects.map((row) => row as { id: string } & Record<string, unknown>),
+      { getParentIdsFor, summariseCounts },
+    );
   }
 
   return Response.json({
