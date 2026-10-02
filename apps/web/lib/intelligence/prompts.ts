@@ -61,3 +61,98 @@ export function renderPrompt(template: PromptTemplate, input: string): string {
   }
   return template.template.replace("{{input}}", input);
 }
+
+/**
+ * The inline block-edit commands, versioned like every other prompt.
+ *
+ * These began life as unversioned strings in `lib/ai/inline.ts` — a module nothing
+ * imported, whose route was never written, so both editors shipped a menu that
+ * called a 404. Moving them here makes them configuration with a version, which is
+ * what lets an output be attributed to the prompt that produced it
+ * (`.agents/rules/ai-features.md`).
+ *
+ * Every system frame carries the same two constraints the brief prompt carries,
+ * because both are about honesty rather than style: use only the supplied text, and
+ * never invent facts. The `related` command is the one exception in shape — it
+ * produces NEW material rather than a rewrite, so it is told so explicitly.
+ */
+export const INLINE_COMMANDS = [
+  "summarize",
+  "related",
+  "checklist",
+  "expand",
+  "shorten",
+  "rephrase",
+] as const;
+
+export type InlineCommand = (typeof INLINE_COMMANDS)[number];
+
+const INLINE_SYSTEM =
+  "You edit one block of a personal knowledge note. " +
+  "Work only from the text supplied; never invent facts, names, dates or numbers. " +
+  "Return only the resulting text — no preamble, no explanation, no surrounding quotes.";
+
+export const INLINE_PROMPTS: Record<InlineCommand, PromptTemplate> = {
+  summarize: {
+    version: "inline-summarize-v1",
+    system: INLINE_SYSTEM,
+    template: ["Condense the following note block, keeping its substance:", "", "{{input}}"].join("\n"),
+    maxTokens: 500,
+    temperature: 0.2,
+  },
+  related: {
+    version: "inline-related-v1",
+    system:
+      INLINE_SYSTEM +
+      " You are adding NEW material, not rewriting: propose adjacent ideas the block implies but does not state.",
+    template: [
+      "Write 2-4 short lines naming ideas related to this note block.",
+      "Return them as plain lines, no bullet characters, no heading:",
+      "",
+      "{{input}}",
+    ].join("\n"),
+    maxTokens: 400,
+    temperature: 0.6,
+  },
+  checklist: {
+    version: "inline-checklist-v1",
+    system: INLINE_SYSTEM,
+    template: [
+      "Convert the following note block into a markdown checklist.",
+      "Use `- [ ]` for each item. Do not add items the text does not support:",
+      "",
+      "{{input}}",
+    ].join("\n"),
+    maxTokens: 500,
+    temperature: 0.2,
+  },
+  expand: {
+    version: "inline-expand-v1",
+    system: INLINE_SYSTEM,
+    template: [
+      "Expand the following note block with more detail, preserving its meaning and voice:",
+      "",
+      "{{input}}",
+    ].join("\n"),
+    maxTokens: 700,
+    temperature: 0.5,
+  },
+  shorten: {
+    version: "inline-shorten-v1",
+    system: INLINE_SYSTEM,
+    template: [
+      "Shorten the following note block, preserving its key meaning:",
+      "",
+      "{{input}}",
+    ].join("\n"),
+    maxTokens: 400,
+    temperature: 0.2,
+  },
+  rephrase: {
+    version: "inline-rephrase-v1",
+    system: INLINE_SYSTEM,
+    template: ["Rephrase the following note block, preserving its meaning:", "", "{{input}}"].join("\n"),
+    maxTokens: 500,
+    temperature: 0.4,
+  },
+};
