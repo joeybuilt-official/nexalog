@@ -174,7 +174,7 @@ bookmarks/tags                     journal/[date]                    today/cards
 bookmarks/tags/[id]                notes                             workspaces
 ```
 
-### 2.3 Mobile surfaces — 16 screens
+### 2.3 Mobile surfaces — 17 screens
 
 ```sh
 git ls-files 'mobile/lib/**' | grep '_screen\.dart$' | sort
@@ -182,10 +182,11 @@ git ls-files 'mobile/lib/**' | grep '_screen\.dart$' | sort
 
 `auth/sign_in` · `bookmarks/bookmarks` · `bookmarks/reader` · `capture/capture` ·
 `captures/capture_review` · `inbox/inbox` · `journal/journal_entry` · `journal/journal_list` ·
-`notes/note_editor` · `notes/notes_list` · `review/review` · `search/search` ·
+`notes/note_editor` · `notes/notes_list` · `projects/projects` · `review/review` · `search/search` ·
 `settings/settings` · `shared/placeholder` · `today/today` · `voice/voice_memo`
 
-(`captures/capture_review` is new — the §4.1 unblock. `shared/placeholder` is dead code with
+(`captures/capture_review` is new — the §4.1 unblock. `projects/projects` is new 2026-10-01 — the
+matrix row 12a. `shared/placeholder` is dead code with
 no importer and no route, so it counts as a file but not as a surface.)
 
 ### 2.4 Two documents the code cites that do not exist
@@ -258,6 +259,7 @@ Legend — **status** is about *surface coverage*, not code quality:
 | 10 | `/app/bookmarks/[id]/reader` | `bookmarks/reader_screen.dart` | **Partial** | Text, read-minutes and a paywalled chip are present with a retry. Missing: HTML fidelity (mobile **strips** `html` to text, so inline links and images are lost; web renders sanitised `readerHtml` in a typography article), `ReaderChrome`, `FindFreeVersionButton`, and the web's auto-fire of extraction when `reader_state` is pending/failed. | HTML render + free-version lookup + auto-extract. |
 | 11 | `/app/search` | `search/search_screen.dart` | **Partial** | Genuinely close: `POST /api/search`, sort, kind facets, and a list/table/board/calendar lens switcher (the web `content-finder` lenses). Two defects: `/api/query-views` is **dead** (§2.5) so saved smart-views silently return nothing; and web parses a query DSL (`lib/search/query-dsl.ts`) that mobile does not. | Fix or remove the saved-views surface; decide on DSL support. |
 | 12 | `/app/settings` | `settings/settings_screen.dart` | **Partial** | Present: email display, dark-mode toggle, sync status, sign-out. Missing most of the web page: **Password** (change), **Billing**, **Workspaces** (management — mobile has a *switcher* in the drawer, not management), **Web History** (save flag / denylist / retention), and **Your data** → `GET /api/export`. Mobile calls `/api/settings` nowhere. | Each web section either implemented or explicitly out of scope. |
+| 12a | `/app/projects` | `projects/projects_screen.dart` | **Partial** | **New 2026-10-01.** The browse half is ported: search (name AND description, every whitespace token required), lifecycle filter, has-sub-projects toggle, all five sort keys, and the A1.7 tree projection with a matching sub-project never hidden behind a filtered-out parent (the parent renders as a dimmed context row). The RULES are a pure Dart port of `apps/web/lib/projects/browse.ts` (`projects/project_browse.dart`, no Flutter/IO/clock); rows are read from the local mirror in `projects/project_providers.dart`. **Two gaps, both stated rather than silent.** (1) **No detail surface and therefore no tap-through** — `/app/projects/[id]` has no native route, so a row is deliberately not tappable; building that surface is its own milestone. (2) **The mirror row is thin** — `projects` IS a `/api/sync` entity, but the sync row carries only the `projects` table's columns: the parent edge lives in `project_items` (`item_kind='project'`, not a synced entity) and neither `itemCount` nor `subProjectCount` is computed on the sync path, so every mirrored project reads as a root with zero counts until the server adds those fields to the sync payload. The browse rules are complete; only their input is. | The project detail surface (and then row tap-through); `parentId`/`itemCount`/`subProjectCount` on the sync payload; create/rename/delete/nest (web has all four). |
 | 13 | `/app/graph` | *(none)* | **Missing** | **No mobile screen and no route.** The Knowledge Garden — the signature v2 surface — is entirely absent from the app. No `/api/graph` caller. **2026-09-26 — the token system it will draw with now exists** (`theme/knowledge_garden_tokens.dart`, plus the pure type→colour mapping and a hardcoded-colour gate — see §4.2); the *surface* does not, and this row stays **Missing**. | A native garden surface, or a recorded decision to defer it (which is a parity-gate exception and needs the operator). Tracked in `docs/agents/in-progress.d/mobile-knowledge-garden.md`; §6 D4 item 4. |
 | 14 | `/app/share` | native `ShareReceiverActivity.kt` | **Matched (other means)** | Covered, but **outside `mobile/lib`** — a translucent Kotlin `ACTION_SEND`/`text/plain` activity that reads the stored bearer token, extracts the first URL, and POSTs `/api/capture`. Extracts URLs only (no text-only shares); no queueing when offline. Note: a `_screen.dart` glob will never see this — do not score this surface "missing". | URL + text shares, offline-queueable. |
 | 15 | `/inbox` (**capture review**) | `captures/capture_review_screen.dart` | **Partial** | **Was Missing and architecturally blocked (§4.1); the blocker is now resolved.** `GET /api/captures` lists captures by status and `captures/capture_review_screen.dart` (routed `/app/captures/review`, in the sidebar) renders the proposal — summary, confidence, page chips, link pairs — and posts accept/reject to `/api/captures/{id}/review`, with reject two-step (web house rule) and a 409 refetch. **Outstanding, and D3 of `adr/0020-mobile-v2-parity-gate.md` would require it — note that ADR is still *Proposed*, so this is a recorded gap, not a breached rule:** this surface is **HTTP-only** — it has no mirror-backed read path and no queueable write path, so it needs a session to show anything. That is a stated exception rather than a silent one: captures live in the brain git repo, not in Postgres, and `GET /api/sync` carries five Postgres entities, so mirroring them would need a new sync entity (§4.1). **D2 (design parity, same caveat — `adr/0020` is Proposed):** the screen now uses semantic `Theme.of(context)` tokens throughout (the two raw `Colors.green`/`Colors.grey` literals it shipped with were moved to `colorScheme.primary`/`colorScheme.outline` in the same change). The repo-wide D2 gap is unchanged and separate: `mobile/lib/src/theme/app_theme.dart` derives everything from one copper seed and defines none of `globals.css`'s 7 `--color-type-*` tokens, so no surface is type-tinted the way web is. | Mirror-backed read + queueable write, or a recorded decision that an operator-only surface may stay online; then the D2 token rebuild. |
@@ -277,18 +279,24 @@ Of **22 web page surfaces**:
 |---|---|---|
 | Matched | **2** | `/app/journal`, `/app/journal/today` |
 | Matched (other means) | **2** | `/app/share` (Kotlin), `/offline` (native offline-first) |
-| Partial | **12** | today, journal/[date], app/inbox, captures/capture_review, review, notes, notes/[id], bookmarks, reader, search, settings, login |
+| Partial | **13** | today, journal/[date], app/inbox, captures/capture_review, review, notes, notes/[id], projects, bookmarks, reader, search, settings, login |
 | **Missing** | **1** | `/app/graph` (Knowledge Garden) |
 | Not ported | **4** | cookie, privacy, refund, terms |
 | N/A | **1** | `/` |
 | **Total** | **22** | |
 
-**Surfaces carrying outstanding work: 17** (12 partial + 1 missing + 4 not ported) — of which 1 is
+**Surfaces carrying outstanding work: 18** (13 partial + 1 missing + 4 not ported) — of which 1 is
 entirely absent (`/app/graph`). Fully matched: 2. Covered by another mechanism: 2. N/A: 1.
 
 > **2026-09-26:** `/inbox` (capture review) moved **Missing → Partial** — `GET /api/captures`
 > unblocked §4.1 and `captures/capture_review_screen.dart` now lists + decides. It stays in the
 > outstanding count because it is HTTP-only (no D3 mirror/queue path); see matrix row 15.
+>
+> **2026-10-01:** `/app/projects` moved **absent → Partial** (matrix row 12a) — the browse half
+> ported (search / lifecycle / has-sub-projects / sort / A1.7 tree) over the pure Dart twin of
+> `apps/web/lib/projects/browse.ts`, read from the local mirror. It stays Partial because two gaps
+> remain: no detail surface (so no row tap-through) and a thin sync row (the parent edge and both
+> counts are not on the sync payload yet).
 
 Plus mobile-only surfaces with no web route to match, tracked separately in §5.
 
@@ -441,14 +449,15 @@ native-app description. Both are one-line fixes for the mobile owner.
 The reverse direction. These are not parity failures; they are places where mobile carries its own
 weight, or where the file list lies about what is shipped.
 
-### 5.1 Reachability — 5 nav tabs, 11 reachable routes
+### 5.1 Reachability — 5 nav tabs, 12 reachable routes
 
 Bottom-nav tabs (`mobile/lib/src/features/shell/app_shell.dart`, `_tabs`): **Today, Notes, Capture,
-Bookmarks, Search**. The sidebar drawer adds Journal, Inbox, Review, Voice memo and Settings.
+Bookmarks, Search**. The sidebar drawer adds Journal, Inbox, Review, Projects, Voice memo and
+Settings.
 Routed in `mobile/lib/src/router.dart`: `/sign-in`, `/app/today`, `/app/journal`,
 `/app/journal/today`, `/app/journal/:date`, `/app/inbox`, `/app/review`, `/app/notes`,
-`/app/notes/:id`, `/app/bookmarks`, `/app/bookmarks/:id/reader`, `/app/settings`, `/app/capture`,
-`/app/voice-memo`, `/app/search`.
+`/app/notes/:id`, `/app/projects`, `/app/bookmarks`, `/app/bookmarks/:id/reader`, `/app/settings`,
+`/app/capture`, `/app/voice-memo`, `/app/search`.
 
 Two consequences worth stating plainly:
 

@@ -13,6 +13,7 @@ import "features/journal/journal_entry_screen.dart";
 import "features/journal/journal_list_screen.dart";
 import "features/notes/note_editor_screen.dart";
 import "features/notes/notes_list_screen.dart";
+import "features/projects/projects_screen.dart";
 import "features/review/review_screen.dart";
 import "features/search/search_screen.dart";
 import "features/settings/settings_screen.dart";
@@ -80,6 +81,10 @@ final routerProvider = Provider<GoRouter>((Ref ref) {
           GoRoute(
             path: "/app/notes",
             builder: (_, __) => const NotesListScreen(),
+          ),
+          GoRoute(
+            path: "/app/projects",
+            builder: (_, __) => const ProjectsScreen(),
           ),
           GoRoute(
             path: "/app/notes/:id",
