@@ -7,17 +7,11 @@
 // lives here and none lives in the widget: this file only projects a stored row
 // into a typed model and binds the browse state to `browseProjects`.
 //
-// **Known gap, stated rather than hidden.** `projects` IS a synced entity
-// (`apps/web/app/api/sync/route.ts` lists it in `SYNC_TABLES` and
-// `SyncEngine._pullDelta` upserts every entity generically), so project rows do
-// reach this mirror — but the sync row carries only the columns of the
-// `projects` table. The parent edge lives in `project_items` (`item_kind =
-// 'project'`), which is NOT a synced entity, and neither the member count nor
-// the sub-project count is computed on the sync path. So [Project.browsable]
-// reads `parentId`/`itemCount`/`subProjectCount` as absent and defaults them —
-// the tree renders flat and the counts read zero until the server adds those
-// fields to the sync payload. The browse rules are complete; only their input
-// is thin.
+// **Resolved by server enrichment.** `GET /api/sync` returns `projects` rows
+// with `parentId`, `itemCount` and `subProjectCount` merged in by the server,
+// using the same batched helpers the web list uses. The mobile client reads
+// them like any other synced field. If they are absent (old or partial sync),
+// the model defaults them so the UI degrades gracefully rather than crashing.
 
 import "package:flutter_riverpod/flutter_riverpod.dart";
 
@@ -40,15 +34,14 @@ class Project {
   String? get createdAt => raw["createdAt"]?.toString();
   String? get updatedAt => raw["updatedAt"]?.toString();
 
-  /// The parent edge — absent from the sync payload today (see the file header),
-  /// so this reads null for every mirrored row and the tree renders flat.
+  /// The parent edge, merged into the sync payload by the server. Falls back to
+  /// null if the payload is from an older server that did not enrich it yet.
   String? get parentId => raw["parentId"]?.toString();
 
-  /// Grouped members (notes/bookmarks/journal). Not computed on the sync path,
-  /// so it reads 0 until the server includes it.
+  /// Grouped members (notes/bookmarks/journal), merged into the sync payload.
   int get itemCount => _int(raw["itemCount"]);
 
-  /// Live child projects. Not computed on the sync path, so it reads 0.
+  /// Live child projects, merged into the sync payload.
   int get subProjectCount => _int(raw["subProjectCount"]);
 
   /// A display name that is never blank — a nameless row still gets a label

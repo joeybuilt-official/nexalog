@@ -24,16 +24,11 @@
 //      than rendered at a second indent level. That also makes a bad-data cycle
 //      (a.parentId = b, b.parentId = a) render both rows instead of neither.
 //
-// **Known gap, stated rather than hidden.** The mobile mirror holds `projects`
-// rows pulled from `GET /api/sync` (the entity is in the route's `SYNC_TABLES`
-// map and the sync engine upserts every entity generically), but the sync row
-// carries only the columns of the `projects` table. Nesting lives in the
-// `project_items` edge table (`item_kind = 'project'`), which is **not** a synced
-// entity, and neither `itemCount` nor `subProjectCount` is computed on the sync
-// path. So [Project.fromMirror] reads `parentId`/`itemCount`/`subProjectCount`
-// as null/absent and defaults them — the tree renders flat and the counts read
-// zero until the server includes those fields on the sync payload. The browse
-// rules themselves are complete; only their input is thin.
+// **Resolved by server enrichment.** `GET /api/sync` returns `projects` rows
+// with `parentId`, `itemCount` and `subProjectCount` merged in by the server
+// (using the same batched helpers the web list uses). The mobile client reads
+// them like any other synced field. If they are absent, the model defaults them
+// so an old or partial sync degrades gracefully rather than crashing.
 
 /// The lifecycle states the domain defines — web `LIFECYCLE_STATES`. Declared
 /// here as the mobile twin so this module depends on nothing.

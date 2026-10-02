@@ -1076,7 +1076,12 @@ async function getProjectRow(workspaceIds: string[], projectId: string) {
 }
 
 /** Batched parent lookup for a set of project ids (list rendering, no N+1). */
-async function getParentIdsFor(projectIds: string[]): Promise<Map<string, string>> {
+/**
+ * Every project's parent edge, batched. Used by list views and by the sync
+ * payload so a mirrored project row carries its nesting context without making
+ * `project_items` itself a synced entity.
+ */
+export async function getParentIdsFor(projectIds: string[]): Promise<Map<string, string>> {
   if (projectIds.length === 0) return new Map();
   const rows = await db
     .select({ childId: schema.projectItems.itemId, parentId: schema.projectItems.projectId })
@@ -1090,8 +1095,11 @@ async function getParentIdsFor(projectIds: string[]): Promise<Map<string, string
   return new Map(rows.map((r) => [r.childId, r.parentId]));
 }
 
-/** The two list counts, batched for a set of project ids. */
-async function summariseCounts(projectIds: string[]): Promise<{
+/**
+ * The two list counts, batched for a set of project ids. Exported so the sync
+ * payload can enrich project rows with live counts without duplicating the SQL.
+ */
+export async function summariseCounts(projectIds: string[]): Promise<{
   itemCounts: Map<string, number>;
   subProjectCounts: Map<string, number>;
 }> {
