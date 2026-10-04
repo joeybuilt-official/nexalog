@@ -14,8 +14,11 @@
 #      nexalog's real `package.json` scripts and `Dockerfile` (pnpm 10, Node 22) — nothing to replace.
 #   2. In repo Settings → Branches, add a branch-protection rule on `main` that marks the `verify`
 #      check REQUIRED and forbids force-push / direct push. `scripts/init-repo-protection.sh` does
-#      this once someone with admin auth runs it. Until step 2, this workflow reports but does not
-#      block — see AGENTS.md → "Enforcement — the honest version".
+#      this once someone with admin auth runs it.
+#      **Both steps are DONE in nexalog as of 2026-09-26** — the numbered list above describes the
+#      adopt-a-fresh-repo sequence, so step 2 is not action for nexalog: `verify` is a required check
+#      on `main` with force-push/deletion forbidden and admins enforced (verified via the API
+#      2026-10-04). See AGENTS.md → "Enforcement — the honest version".
 #
 # NOT WIRED, deliberately: `scripts/check-expert-review.sh`. The script is current (re-synced to the
 # kit's fixed body) and would pass on this repo today — a `plan.md` and a `checklist.md` with pending
