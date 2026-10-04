@@ -1,31 +1,50 @@
 #!/usr/bin/env sh
-# Regenerate every tool-native agent file so each is SELF-CONTAINED. Two sources of truth, rendered
-# out — never hand-duplicated:
+# Regenerate every tool-native agent file. Two sources of truth, rendered out — never hand-duplicated:
 #   * the universal preamble  = the MIRROR block in AGENTS.md (read-order + non-negotiables + guardrails)
 #   * the rule bodies         = the full text of every .agents/rules/*.md module
-# Each mirror INLINES the preamble followed by the complete body of every rule module, so a tool that
-# only loads its own native file gets the WHOLE ruleset — never a pointer to .agents/rules/ it cannot
-# follow. AGENTS.md is refilled in place too, between its <!-- PANOPLY:RULES:BEGIN/END --> markers, so
-# AGENTS.md-native tools get the full governance with no @-imports and need no mirror. Never hand-edit
-# a mirror or the AGENTS.md rules block; edit AGENTS.md (preamble) or .agents/rules/*.md (bodies) and
-# re-run. POSIX sh, no runtime deps — Git Bash, WSL, macOS, Linux, CI.
-#   sh scripts/sync-agents.sh              # write mirrors + refill AGENTS.md rules block
+#
+# WHERE THE FULL RULE TEXT LIVES depends on the FORMAT, and the two are deliberate:
+#
+#   * SINGLE-FILE MIRRORS (this script's build_mirror) carry the preamble + a generated INDEX of the
+#     rule modules (name → one-line description → path), NOT the bodies. They are read whole by a tool
+#     that also has file access, so a named path it can open is not a pointer into nowhere — and
+#     inlining every body made a ~157KB file per tool (~47,000 tokens at session start) that harnesses
+#     SILENTLY TRUNCATED at their cap, so it was neither small nor complete while claiming to be both.
+#     `AGENTS.md` was already an index for exactly this reason; the mirrors now match it.
+#   * PER-RULE MODULES (`.cursor/rules/*.mdc`, `.agents/rules/*.mdc`) carry each rule's FULL body
+#     verbatim, one rule per file, `alwaysApply` derived from the rule's OWN `Applies when:` line. A
+#     tool that loads only one file, or cannot follow a path, gets the complete text of every rule
+#     that applies to it — and a Cursor session does not force-load the whole corpus for every task.
+#
+# Rule bodies are canonical under `.agents/rules/*.md` — one home, no second copy to drift.
+# AGENTS.md's <!-- PANOPLY:RULES:BEGIN/END --> block is refilled with the same INDEX, not the bodies:
+# AGENTS.md is the hub read by AGENTS.md-native tools, but it is also the file some runtimes load and
+# truncate (inlining ~134KB of bodies there pushed it past a ~20K cap, which silently dropped the
+# middle). The index keeps it small and honest: the rule text lives ONCE under .agents/rules/.
+#
+# Never hand-edit a mirror or the AGENTS.md rules block; edit AGENTS.md (preamble) or
+# .agents/rules/*.md (bodies) and re-run. POSIX sh, no runtime deps — Git Bash, WSL, macOS, Linux, CI.
+#   sh scripts/sync-agents.sh              # write mirrors + refill the AGENTS.md rules index block
 #   sh scripts/sync-agents.sh --check      # exit 1 if any mirror / the AGENTS.md block is stale (CI gate)
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$ROOT/AGENTS.md"
 RULES_DIR="$ROOT/.agents/rules"
+PREAMBLE="$ROOT/.agents/preamble.md"
 [ -f "$SRC" ] || { echo "AGENTS.md not found; run /adapt-agents-setup first." >&2; exit 1; }
 [ -d "$RULES_DIR" ] || { echo ".agents/rules/ not found." >&2; exit 1; }
+[ -f "$PREAMBLE" ] || { echo ".agents/preamble.md not found (the universal preamble)." >&2; exit 1; }
 
 CHECK=0
 [ "${1:-}" = "--check" ] && CHECK=1
 
 # --- The rule modules, in read order. Curated order first (clean-architecture is the premise every
 #     other module inherits from), then any other .agents/rules/*.md not listed, so a newly added module
-#     is never silently dropped. Missing modules (pruned by /adapt) are skipped. ---
-ORDER="algorithm clean-architecture workflow quality-bar git-workflow documentation code-style testing error-handling database data-modeling api-design frontend design-system ai-features agent-readiness"
+#     is never silently dropped. Missing modules (pruned by /adapt) are skipped. `algorithm` is not in
+#     the kit v1.4.0 module set this repo reconciled against, so it is absent here on purpose.
+#     `agent-readiness` is deliberately PRUNED (see the worklog): this repo serves no MCP surface. ---
+ORDER="clean-architecture workflow quality-bar git-workflow documentation code-style testing error-handling database data-modeling api-design frontend design-system ai-features"
 MODULES=""
 for m in $ORDER; do
   [ -f "$RULES_DIR/$m.md" ] && MODULES="$MODULES $m"
@@ -37,29 +56,55 @@ for f in "$RULES_DIR"/*.md; do
 done
 [ -n "$MODULES" ] || { echo "No rule modules under .agents/rules/." >&2; exit 1; }
 
-# The universal preamble body: the MIRROR block extracted from AGENTS.md (single source of truth).
-MIRROR="$(awk '/MIRROR:start/{f=1;next} /MIRROR:end/{f=0} f' "$SRC")"
-[ -n "$MIRROR" ] || { echo "No MIRROR block found in AGENTS.md." >&2; exit 1; }
+# The universal preamble body: `.agents/preamble.md`, rendered out. It used to be the MIRROR block
+# extracted from AGENTS.md, but the hub is read WHOLE and truncated at ~20,000 chars, and an inlined
+# copy of the preamble — text addressed to tools that will never open AGENTS.md — pushed it past its
+# loader's cap. It lives once under `.agents/` and is copied into every mirror from there.
+MIRROR="$(cat "$PREAMBLE")"
+[ -n "$MIRROR" ] || { echo ".agents/preamble.md is empty." >&2; exit 1; }
 
 GEN="<!-- GENERATED by scripts/sync-agents.sh from AGENTS.md + .agents/rules/*.md — DO NOT EDIT. Edit AGENTS.md (preamble) or .agents/rules/*.md (rule bodies) and re-run \`sh scripts/sync-agents.sh\`. -->"
-NOTE="> **This file is self-contained.** It reproduces the COMPLETE ruleset for this repo — the universal
-> preamble below, then the full text of every \`.agents/rules/\` module — so you can follow it without
-> opening any other file. It is generated; do not edit it. Edit \`AGENTS.md\` (the preamble) or
-> \`.agents/rules/*.md\` (the rule bodies) and run \`sh scripts/sync-agents.sh\`."
+NOTE="> **This file is an INDEX, not the ruleset.** It carries the universal preamble, then names every
+> \`.agents/rules/\` module with a one-line description and the path to read.
+>
+> Where the full rule text lives depends on the FORMAT, and the two are deliberate:
+>
+> - **Single-file mirrors (this file)** carry the index only. They are read whole by a tool that also
+>   has file access, so a named path it can open is not a pointer into nowhere — and inlining every
+>   body made a ~157KB file that harnesses **silently truncated** at their cap, so it was neither
+>   small nor complete while claiming to be both. \`AGENTS.md\` was already an index for this reason;
+>   these files now match it.
+> - **Per-rule modules** (\`.cursor/rules/*.mdc\`, \`.agents/rules/*.mdc\`) carry each rule's FULL body
+>   verbatim, one rule per file, scoped by the rule's own \`Applies when:\` condition. A tool that loads
+>   only one file, or cannot follow a path, gets the complete text of every rule that applies to it.
+>
+> Rule bodies are canonical under \`.agents/rules/*.md\` — one home, no second copy to drift.
+>
+> It is generated; do not edit it. Edit \`AGENTS.md\` (the preamble) or \`.agents/rules/*.md\` (the rule
+> bodies) and run \`sh scripts/sync-agents.sh\`."
 
 TMP="$(mktemp)"
-RULESTMP="$(mktemp)"
-trap 'rm -f "$TMP" "$RULESTMP"' EXIT INT TERM
+INDEXTMP="$(mktemp)"
+trap 'rm -f "$TMP" "$INDEXTMP"' EXIT INT TERM
 
-# Concatenate every rule module's full body, separated by an hr.
-render_rules() {
-  _first=1
+# One-line description of a rule module: its `# ` H1, else its filename. Used by the INDEX.
+rule_desc() { # $1 = module basename
+  _d="$(sed -n 's/^# //p' "$RULES_DIR/$1.md" | head -1)"
+  [ -n "$_d" ] || _d="$1"
+  printf '%s' "$_d"
+}
+
+# The INDEX: module → one-line description → the path to read. This is what every single-file mirror
+# and the AGENTS.md rules block render. The full bodies stay canonical under .agents/rules/*.md.
+render_index() {
   for m in $MODULES; do
-    if [ "$_first" -eq 1 ]; then _first=0; else printf '\n---\n\n'; fi
-    cat "$RULES_DIR/$m.md"
+    # Backticks here are MARKDOWN code spans, not command substitution. shellcheck cannot tell, so
+    # SC2016 is disabled on this line rather than escaped: the literal backticks are the point.
+    # shellcheck disable=SC2016
+    printf -- '- `%s` — %s — `.agents/rules/%s.md`\n' "$m" "$(rule_desc "$m")" "$m"
   done
 }
-render_rules > "$RULESTMP"
+render_index > "$INDEXTMP"
 
 STALE=0
 # Compare TMP against the on-disk target (check mode) or install it (write mode).
@@ -81,7 +126,12 @@ put() { # $1 = repo-relative path
   fi
 }
 
-# A concatenated mirror = frontmatter (optional) + preamble + every rule body inlined.
+# A mirror = frontmatter (optional) + preamble + the rules INDEX (not the rule bodies).
+#
+# The bodies are deliberately NOT inlined. Inlining every module produced a ~157KB file per tool —
+# ~47,000 tokens read at session start by any tool that loads it — while being silently truncated by
+# harnesses that cap the file, so it neither fit nor was actually complete. One fact, one home: the
+# bodies stay canonical under `.agents/rules/*.md`.
 build_mirror() { # $1 = optional frontmatter
   {
     [ -n "${1:-}" ] && printf '%s\n' "$1"
@@ -89,11 +139,12 @@ build_mirror() { # $1 = optional frontmatter
     printf '%s\n\n' "$NOTE"
     printf '%s\n\n' "$MIRROR"
     printf '%s\n\n' "---"
-    cat "$RULESTMP"
+    printf '## Rules modules — read the ones this task touches\n\n'
+    render_index
   } > "$TMP"
 }
 
-# --- Concatenated, single-file mirrors (preamble + all rule bodies) ---
+# --- Concatenated, single-file mirrors (preamble + the rules index) ---
 build_mirror ""                        ; put ".github/copilot-instructions.md"
 build_mirror ""                        ; put "GEMINI.md"
 build_mirror ""                        ; put "CONVENTIONS.md"
@@ -102,8 +153,14 @@ build_mirror "---
 trigger: always_on
 ---"                                    ; put ".windsurf/rules/00-agents.md"
 
-# --- Cursor: one .mdc per rule module (alwaysApply), plus a preamble file. All load together, so the
-#     set is self-contained; each module file carries its own full body verbatim. ---
+# --- Cursor: one .mdc per rule module, plus a preamble file.
+#
+# `alwaysApply: true` on EVERY module meant a Cursor session force-loaded the whole corpus (~47,000
+# tokens) no matter the task — the same defect the concatenated mirrors had, reached a different way.
+# Modules whose own header says "Applies when: always" keep `alwaysApply: true`; the conditional ones
+# (api-design, database, frontend, ai-features, ...) are emitted with `alwaysApply: false` and a
+# description carrying their activation condition, so the tool loads them only when the work matches.
+# The condition is read from the module itself — not restated here, which is how the two would drift. ---
 build_cursor_preamble() {
   {
     printf '%s\n' "---"
@@ -118,10 +175,22 @@ build_cursor_preamble() {
 build_cursor_module() { # $1 = module basename
   title="$(sed -n 's/^# //p' "$RULES_DIR/$1.md" | head -1)"
   [ -n "$title" ] || title="$1"
+  # The module's OWN declared activation condition decides alwaysApply. Reading it here rather than
+  # keeping a second list in this script is the point: a hand-maintained list drifts from the rule.
+  cond="$(sed -n 's/.*Applies when:[ ]*//p' "$RULES_DIR/$1.md" | head -1 | sed 's/\*\*//g; s/^[*> ]*//; s/[ ]*$//')"
+  case "$cond" in
+    always*|ALWAYS*) always="true"  ; when="always" ;;
+    "")              always="true"  ; when="always (no condition declared)" ;;
+    *)               always="false" ; when="$cond" ;;
+  esac
   {
     printf '%s\n' "---"
-    printf 'description: %s\n' "Panoply rule — $title (read 00-preamble.mdc first for the read-order)"
-    printf 'alwaysApply: true\n'
+    if [ "$always" = "true" ]; then
+      printf 'description: %s\n' "Panoply rule — $title (read 00-preamble.mdc first for the read-order)"
+    else
+      printf 'description: %s\n' "Panoply rule — $title. Applies when: $when"
+    fi
+    printf 'alwaysApply: %s\n' "$always"
     printf '%s\n\n' "---"
     printf '%s\n\n' "$GEN"
     cat "$RULES_DIR/$1.md"
@@ -180,26 +249,27 @@ if [ -d "$ROOT/.agents/rules" ]; then
   done
 fi
 
-# --- AGENTS.md: refill the full rule bodies between the PANOPLY:RULES markers (self-contained, no
-#     @-imports), preserving all hand-authored content outside the block. ---
+# --- AGENTS.md: refill the rule INDEX between the PANOPLY:RULES markers, preserving all hand-authored
+#     content outside the block. The full bodies are NOT inlined here (see render_index above): the
+#     canonical text lives once under .agents/rules/*.md, and this block points at it. ---
 if ! grep -q 'PANOPLY:RULES:BEGIN' "$SRC" || ! grep -q 'PANOPLY:RULES:END' "$SRC"; then
   echo "AGENTS.md is missing the <!-- PANOPLY:RULES:BEGIN/END --> markers." >&2
   exit 1
 fi
-awk -v rules="$RULESTMP" '
+awk -v rules="$INDEXTMP" '
   /PANOPLY:RULES:BEGIN/ { print; print ""; while ((getline line < rules) > 0) print line; print ""; skip=1; next }
   /PANOPLY:RULES:END/   { skip=0; print; next }
   skip { next }
   { print }
 ' "$SRC" > "$TMP"
 if [ "$CHECK" -eq 1 ]; then
-  if ! diff -q "$TMP" "$SRC" >/dev/null 2>&1; then echo "STALE: AGENTS.md (rules block)"; STALE=1; fi
+  if ! diff -q "$TMP" "$SRC" >/dev/null 2>&1; then echo "STALE: AGENTS.md (rules index block)"; STALE=1; fi
 else
-  cp "$TMP" "$SRC"; echo "refilled AGENTS.md rules block"
+  cp "$TMP" "$SRC"; echo "refilled AGENTS.md rules index block"
 fi
 
 if [ "$CHECK" -eq 1 ]; then
   [ "$STALE" -eq 0 ] && { echo "Mirrors + AGENTS.md in sync with the preamble and rule modules."; exit 0; }
   echo "Mirrors are stale — run: sh scripts/sync-agents.sh" >&2; exit 1
 fi
-echo "Mirrors regenerated (self-contained) from AGENTS.md + .agents/rules/*.md."
+echo "Mirrors regenerated (index mirrors + full-body .mdc modules) from AGENTS.md + .agents/rules/*.md."

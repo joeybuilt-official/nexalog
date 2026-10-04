@@ -21,6 +21,30 @@ Add an entry when a feature is tested and signed off, at the same time you move 
 
 <!-- New entries go directly below this line, newest first. -->
 
+### Agent mirrors are an index, not the ruleset — 2026-10-03
+- **What shipped:** every generated tool-native agent file now carries the universal preamble plus a
+  generated **index** of the rule modules (name → one-line description → path to read) instead of
+  inlining ~134KB of rule bodies. `CLAUDE.md`, `GEMINI.md`, `CONVENTIONS.md`,
+  `.clinerules/00-agents.md`, `.github/copilot-instructions.md`, and `.windsurf/rules/00-agents.md`
+  dropped from 157,472 to 10,088 bytes each, still naming all 14 modules; `AGENTS.md` dropped from
+  152,016 to 13,361. The per-rule `.mdc` files keep each rule's full body and are now scoped by that
+  rule's own `Applies when:` line (6 always-on, 8 conditional), and `scripts/doc-map.sh` + its canary
+  are ported and wired into `verify` as the context-budget gate.
+- **Area:** `platform`
+- **Archived plan:** `platform/mirror-index/plan.md`
+- **Notable decisions:** the rule bodies keep exactly one home, `.agents/rules/*.md`; the mirrors and
+  the `AGENTS.md` rules block render the index, and per-rule `.mdc` files carry the bodies. The
+  universal preamble moved from an inlined copy inside `AGENTS.md` to `.agents/preamble.md` because
+  the inlined copy pushed the hub 66 bytes past the ~20,000-char cap its loader truncates at —
+  a truncated read is silent, so the cap is enforced by `doc-map.sh --check` rather than assumed.
+  `alwaysApply` is derived from each module's own declared condition, never a hand-kept list.
+  `doc-map.test.sh` was ported with two repo-portability fixes (exclude vendored `node_modules`
+  trees from the doc count; pick the first rule module present rather than naming the absent
+  `algorithm`).
+- **Known gaps:** `scripts/panoply.sh` itself was not refreshed (the repo resolves to the canonical
+  kit clone at v1.4.0, which predates the upstream index change), so its `migrate` command and
+  `selfstale` exit code are absent; that refresh is its own change. No kit-layout migration was done.
+
 ### Projects — per-project BRIEF synthesis — 2026-10-01
 - **What shipped:** every project page now carries a BRIEF — a short, structured markdown summary of
   what the project is, its current state, active threads, recent activity and open questions —

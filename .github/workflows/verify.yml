@@ -54,9 +54,18 @@ jobs:
 
       # Agent-mirror drift — fails if any tool-native file (.cursor/.clinerules/.windsurf/.github/
       # copilot-instructions.md, GEMINI.md, CONVENTIONS.md) or the AGENTS.md rules block is stale vs
-      # AGENTS.md + .agents/rules/*.md. This is what keeps every tool's inlined ruleset honest.
+      # AGENTS.md + .agents/rules/*.md. This is what keeps every tool's ruleset surface honest. A
+      # mirror is an INDEX (preamble + one line per rule module), not an inlined corpus — see the
+      # next step's canary, which fails if the bodies are ever inlined back into a mirror.
       - name: Agent mirrors in sync
         run: sh scripts/sync-agents.sh --check
+
+      # The context-budget canary — proves a generated mirror is an INDEX and not the inlined rule
+      # corpus, that every rule module is named in it, that conditional rules are not force-loaded,
+      # and that AGENTS.md is under the cap its loader truncates at. These all regressed silently
+      # before anything measured them.
+      - name: Doc-map / context-budget self-test
+        run: sh scripts/doc-map.test.sh
 
       # Docs landing gate — fails if any commit in this PR changed code but not the worklog.
       # Nexalog has no CHANGELOG.md/HISTORY.md, so check-docs.sh resolves to docs/agents/worklog.md.
