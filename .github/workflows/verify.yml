@@ -9,12 +9,14 @@
 # This matters more here than in the sibling apps: the database is the **shared Postgres**, and
 # `pnpm db:push` (`drizzle-kit push`) is a one-command way to drop columns across other apps' schemas.
 #
-# ⚠ REPORT-ONLY UNTIL BRANCH PROTECTION LANDS: this workflow currently *reports* on every PR and push
-#   to main, but nothing is REQUIRED. A red `verify` does not block a merge yet. Operator step (once,
-#   after this workflow has run green on a real PR): in repo Settings → Branches, add a
-#   branch-protection rule on `main` marking the `verify` check REQUIRED and forbidding force-push /
-#   direct push — `scripts/init-repo-protection.sh` does this once someone with admin auth runs it.
-#   See AGENTS.md → "Enforcement — the honest version".
+# ⚠ Branch protection is LIVE (since 2026-09-26). This workflow *blocks* a bad merge: `verify` is a
+#   REQUIRED status check on `main`, with admins enforced, force-push and deletion forbidden. The
+#   earlier "REPORT-ONLY UNTIL BRANCH PROTECTION LANDS / nothing is REQUIRED" note described the
+#   pre-2026-09-26 state and is now false. Confirmed against the API on 2026-10-04:
+#   GET /repos/joeybuilt-official/nexalog/branches/main/protection → 200, contexts ["verify"],
+#   enforce_admins.enabled true, allow_force_pushes.enabled false, allow_deletions.enabled false.
+#   (The old 2026-09-20 report recorded a 403 — that was the free-plan *private*-repo limit; the repo
+#   is public now, so the same call succeeds.) See AGENTS.md → "Enforcement — the honest version".
 #
 # NOT WIRED, deliberately: `scripts/check-expert-review.sh`. The script itself is current (re-synced
 # to the kit's fixed body) and would pass on this repo today — a `plan.md` and a `checklist.md` with

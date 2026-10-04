@@ -46,7 +46,7 @@ auto-detects the target, so adding one would silently move the gate.
 
 ### The same-change update contract (every agent, every provider)
 
-In the SAME commit that lands work — the agent, any agent, any agent, or any other tool:
+In the SAME commit that lands work — any harness, any agent, or any other tool:
 
 1. **Append one worklog line** (to `worklog.md`, or the `[Unreleased]` section) — what changed, where.
 2. **Write your task's own fragment** — `docs/agents/in-progress.d/<slug>.md` — with its status and its

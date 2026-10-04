@@ -69,8 +69,7 @@ implies**: `.panoply-version` is only true once `sync-agents.sh` has run over th
 
 ### MUST NOT — hard guardrails
 
-**What is actually enforced, honestly:** a tool-specific permission file can refuse the destructive commands below (`pnpm db:push` first among them) — but it binds **only the tool that reads it**. Every other harness that reads this block (any agent, any agent, any agent, the agent, the agent, the agent,
-the agent, the agent) gets these guardrails as **prose**, and CI (`.github/workflows/verify.yml`) runs the
+**What is actually enforced, honestly:** a tool-specific permission file can refuse the destructive commands below (`pnpm db:push` first among them) — but it binds **only the tool that reads it**. Every other harness that reads this block (any other agent, any harness, any prompt-driven tool) gets these guardrails as **prose**, and CI (`.github/workflows/verify.yml`) runs the
 typecheck / lint / test / build and the docs + mirror gates on every PR. As of 2026-09-26 the repo is
 public and `verify` **is a required check on `main`** — branch protection is live (admins enforced,
 no force-push, no deletion), so a red `verify` now actually blocks a merge. The permission gate still
@@ -231,10 +230,10 @@ per-user workflow rules stay in local `~/.<tool>/` memory, never here.
 - **A gate exists, and it is narrower than it sounds: it binds only the tool that reads it.** A tool-specific permission file
   (added 2026-09-25; deny list copied verbatim from the sibling `fylo` gate, plus this repo's
   db-destruction and deploy denies: `pnpm db:push`, `pnpm drizzle-kit push`, `psql`,
-  `docker compose … nexalog … up`) mechanically refuses those commands **in a agent tool session in
+  `docker compose … nexalog … up`) mechanically refuses those commands **in an agent tool session in
   this repo** — that closes the biggest hole, since the #1 MUST NOT above is no longer prose for the
-  one harness that reads the file. It is one harness: any agent, any agent, any agent, the agent, the agent, the agent,
-  other agents never read it, so for them the MUST NOT list is still **prose**. The gate is also not a sandbox — it constrains the agent's tool calls, not the shell.
+  one harness that reads the file. It is one harness: other tools, other harnesses, and other agents
+  never read it, so for them the MUST NOT list is still **prose**. The gate is also not a sandbox — it constrains the agent's tool calls, not the shell.
 - **Branch protection is live as of 2026-09-26.** `.github/workflows/verify.yml` (the `verify` job:
   frozen-lockfile install, `sync-agents.sh --check`, the `check-docs.sh` landing gate,
   `pnpm typecheck / lint / test / build`) runs on every PR and push to `main`, and `verify` is a
@@ -247,10 +246,12 @@ per-user workflow rules stay in local `~/.<tool>/` memory, never here.
   remain **doc-level doctrine only**. They bind you by agreement, not by a gate. Treat that as a reason
   for more care, not less.
 - `scripts/sync-agents.sh --check` and `scripts/check-docs.sh` are now wired into the `verify`
-  workflow (installed from `scripts/templates/ci-verify.yml`). The single highest-value step left is
-  **marking `verify` REQUIRED in Settings → Branches** plus forbidding force-push / direct push
-  (operator; `scripts/init-repo-protection.sh` does it once someone with admin auth runs it). Keep
-  running both scripts by hand before every commit regardless — CI reports after the fact.
+  workflow (installed from `scripts/templates/ci-verify.yml`). The branch-protection step is **done**,
+  not pending: as of 2026-09-26 `verify` is a required status check on `main` and force-push /
+  direct push are forbidden (admins enforced) — the earlier "single highest-value step left is
+  marking `verify` REQUIRED" note described the pre-2026-09-26 report-only state and is now false.
+  Keep running both scripts by hand before every commit regardless — CI reports after the fact, and
+  a required check gates the merge, not the work.
 - `scripts/check-expert-review.sh` is shipped but **not viable yet**: it wants a `checklist.md` with
   pending items under `docs/agents/`, and nexalog keeps its checklists at the repo root instead.
 
