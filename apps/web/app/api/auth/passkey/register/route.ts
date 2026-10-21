@@ -13,6 +13,7 @@ import {
 import { PasskeyStore } from "@/lib/passkey/store"
 import { ChallengeStore } from "@/lib/passkey/challenge-store"
 import { auth } from "@/lib/auth"
+import { isAllowedEmail } from "@/lib/auth/allowlist"
 import { headers } from "next/headers"
 
 const RP_NAME = process.env.NEXT_PUBLIC_APP_NAME ?? "Nexalog"
@@ -21,7 +22,10 @@ const RP_ID = process.env.NEXT_PUBLIC_RP_ID ?? "localhost"
 export async function POST(req: Request) {
   try {
     const session = await auth.api.getSession({ headers: await headers() })
-    if (!session?.user) {
+    // SINGLE-ACCOUNT DOOR — this route reads the session directly, so the
+    // allowlist is applied here too; a pre-existing session for a blocked
+    // address must not reach an authenticated surface.
+    if (!session?.user || !isAllowedEmail(session.user.email)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 

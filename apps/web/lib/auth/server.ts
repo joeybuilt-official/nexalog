@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import type { User } from "./types";
+import { isAllowedEmail } from "./allowlist";
 
 export async function getAuthUser(): Promise<User | null> {
   try {
@@ -41,6 +42,12 @@ export async function getAuthUser(): Promise<User | null> {
     const session = await auth.api.getSession({ headers: authHeaders });
     if (!session?.user) return null;
     const user = session.user as User;
+    // SINGLE-ACCOUNT DOOR, third path. `session.create` above stops a NEW
+    // session for a row that is not on the allowlist; this stops an OLD one.
+    // Without it, a session minted before the gate existed (or before its user
+    // was removed from the list) keeps working for as long as it lives — the
+    // row is never deleted, so the session outlives the decision.
+    if (!isAllowedEmail(user.email)) return null;
     // Universal Plexo auto-connect — debounced, fire-and-forget.
     // First call per user per hour ensures their workspace exists and
     // this app is registered as an installed connection + bridge.

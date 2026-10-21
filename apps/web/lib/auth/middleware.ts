@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { NextResponse, type NextRequest } from "next/server";
+import { isAllowedEmail } from "@/lib/auth/allowlist";
 
 const PUBLIC_PREFIXES = [
   "/",
@@ -27,7 +28,7 @@ export async function updateSession(
   try {
     const session = await auth.api.getSession({ headers: request.headers });
 
-    if (!session?.user) {
+    if (!session?.user || !isAllowedEmail(session.user.email)) {
       const url = request.nextUrl.clone();
       url.pathname = "/login";
       return NextResponse.redirect(url);
