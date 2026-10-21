@@ -16,12 +16,16 @@ import { PortableKeypair } from "@/lib/identity/portable-keypair"
 import { recognizeCredential } from "@/lib/identity/recognition"
 import { ChallengeStore } from "@/lib/passkey/challenge-store"
 import { auth } from "@/lib/auth"
+import { isAllowedEmail } from "@/lib/auth/allowlist"
 import { headers } from "next/headers"
 
 export async function POST() {
   try {
     const session = await auth.api.getSession({ headers: await headers() })
-    if (!session?.user) {
+    // SINGLE-ACCOUNT DOOR — this route reads the session directly, so the
+    // allowlist is applied here too; a pre-existing session for a blocked
+    // address must not reach an authenticated surface.
+    if (!session?.user || !isAllowedEmail(session.user.email)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     const anchor = await PortableKeypair.generate(session.user.id)

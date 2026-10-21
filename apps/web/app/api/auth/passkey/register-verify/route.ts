@@ -14,6 +14,7 @@ import { PasskeyStore } from "@/lib/passkey/store"
 import { ChallengeStore } from "@/lib/passkey/challenge-store"
 import { RecoveryCodes } from "@/lib/identity/recovery-codes"
 import { auth } from "@/lib/auth"
+import { isAllowedEmail } from "@/lib/auth/allowlist"
 import { passkeyOrigins } from "@/lib/hosts/config"
 import { headers } from "next/headers"
 
@@ -27,7 +28,10 @@ const ORIGIN = passkeyOrigins()
 export async function POST(req: Request) {
   try {
     const session = await auth.api.getSession({ headers: await headers() })
-    if (!session?.user) {
+    // SINGLE-ACCOUNT DOOR — this route reads the session directly, so the
+    // allowlist is applied here too; a pre-existing session for a blocked
+    // address must not reach an authenticated surface.
+    if (!session?.user || !isAllowedEmail(session.user.email)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 

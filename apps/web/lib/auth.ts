@@ -3,6 +3,7 @@ import { betterAuth } from "better-auth";
 import { admin, bearer } from "better-auth/plugins";
 import { Pool } from "pg";
 import { hostConfig as hostConfigFromEnv, trustedOriginsFromEnv } from "@/lib/hosts/config";
+import { allowlistDatabaseHooks } from "@/lib/auth/allowlist-hooks";
 
 const pool = new Pool({
   connectionString:
@@ -19,8 +20,30 @@ const googleClientSecret = process.env.NEXALOG_GOOGLE_CLIENT_SECRET;
 
 const hostConfig = hostConfigFromEnv();
 
+/**
+ * SESSION-GATE — the email behind a user id, for the allowlist's second path.
+ * `databaseHooks.session.create` fires for every way a session is minted
+ * (Google callback, email/password, bearer), and the user row it points at may
+ * predate the allowlist; looking the address up is what closes that path.
+ * One primary-key read per session creation, which is a login-frequency event.
+ */
+async function lookupUserEmail(userId: string): Promise<string | null> {
+  const { rows } = await pool.query<{ email: string }>(
+    'select email from auth."user" where id = $1 limit 1',
+    [userId],
+  );
+  return rows[0]?.email ?? null;
+}
+
 export const auth = betterAuth({
   database: pool,
+  // SINGLE-ACCOUNT DOOR. `disableSignUp` below covers email/password only — a
+  // social provider still creates a user row for any Google account that
+  // completes the flow. These hooks are the binding rule: `user.create` refuses
+  // a stranger, `session.create` refuses a session for a row that is already
+  // there. Both throw 403 rather than returning false (see the module comment
+  // in allowlist-hooks.ts for why the social callback needs the throw).
+  databaseHooks: allowlistDatabaseHooks(lookupUserEmail),
   // Additive: the bearer plugin lets the server ALSO accept
   // `Authorization: Bearer <session-token>` in addition to the web cookie.
   // The native mobile client reads the token from the `set-auth-token`
