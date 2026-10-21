@@ -2,7 +2,7 @@
 
 - **Area:** `platform`  ·  **Started:** 2026-10-21  ·  **Status:** In progress — code + tests green, PR open, **not merged, not deployed**
 - **Owner:** builder (Hermes), for Dustin
-- **Next step:** Dustin merges, then the operator-gated step in §Milestones M4 — (1) add `https://nexalog.com/api/auth/callback/google` to a Google OAuth client in the Google console and save the client id + secret, (2) set `NEXALOG_GOOGLE_CLIENT_ID`, `NEXALOG_GOOGLE_CLIENT_SECRET` and `BETTER_AUTH_URL=https://nexalog.com` in the live compose file and rebuild + restart `nexalog-v2-web-1`. The button needs no build flag: it is derived from the credentials server-side (see §Build notes).
+- **Next step:** Dustin merges, then the operator-gated step in §Milestones M4 — (1) add `https://app.nexalog.com/api/auth/callback/google` to a Google OAuth client in the Google console and save the client id + secret, (2) set `NEXALOG_GOOGLE_CLIENT_ID` and `NEXALOG_GOOGLE_CLIENT_SECRET` in the live compose file and rebuild + restart `nexalog-v2-web-1`. **`BETTER_AUTH_URL` stays `https://app.nexalog.com`** — it is the app origin the split-cookie design is built on (see §Build notes). The button needs no build flag: it is derived from the credentials server-side.
 - **Roadmap initiative:** none — a security fix with a single named requester (Dustin), not a strategic arc.
 
 ## Goal
@@ -120,13 +120,20 @@ data rather than claiming it.
   reach the build. `lib/auth/google-enabled.ts` decides from the credentials on the server and
   `app/(auth)/login/page.tsx` passes the boolean down, exactly as it already passes `appOrigin`. A test
   pins the predicate; nothing about the button needs a rebuild to turn on beyond the deploy itself.
-- **Callback host.** `app.nexalog.com` 307-redirects every page to the apex, and readers sign in on
-  `https://nexalog.com/login`, so the redirect URI registered in the Google console must be
-  `https://nexalog.com/api/auth/callback/google`, and `BETTER_AUTH_URL` must name the same origin —
-  otherwise Better Auth derives a `redirect_uri` on the redirecting host and the callback crosses a hop
-  it does not need (Google's code redirect is a GET, so the hop is survivable, not desirable). Both
-  origins are already in `TRUSTED_ORIGIN`, and the passkey RP ID is the registrable domain
-  (`nexalog.com`), so neither is disturbed by the change.
+- **Callback host is the APP host, and the split-cookie design is why.** `BETTER_AUTH_URL` names the app
+  origin (`lib/hosts/config.ts` reads `NEXALOG_APP_URL ?? BETTER_AUTH_URL`), and `isCookieShared` returns
+  the shared parent domain — `.nexalog.com` — only while the front and app hosts differ. So the redirect
+  URI to register is `https://app.nexalog.com/api/auth/callback/google`, and moving `BETTER_AUTH_URL` to
+  the apex would drop `advanced.crossSubDomainCookies` to host-only cookies. Page routes on the app host
+  do 307 to the apex, but **`/api/auth/*` does not**: probed live during this work, a synthetic
+  `?code=…&state=…` hits the handler on **both** hosts and both answer
+  `302 /api/auth/error?error=please_restart_the_process` (the state cookie is absent, which is the
+  correct answer for a forged code) — the callback therefore runs on whichever host Google was told,
+  with no redirect in between. The flow still starts on the apex, because `/login` is canonical there;
+  the state cookie is `.nexalog.com`-scoped, so the app-host callback can read it and the session it
+  mints is readable on the apex pages. Host alignment (one host, no split) is a separate change, not
+  this one.
+
 - **Deletion candidates.** (1) The three direct-session route patches — deleting them would leave a
   pre-existing session able to call passkey/keypair registration; kept because "cannot obtain a
   session" has to hold even for a cookie minted before the gate. (2) A second "Continue with Google"
