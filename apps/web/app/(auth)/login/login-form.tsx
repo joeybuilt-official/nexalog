@@ -13,7 +13,20 @@ const GOOGLE_ENABLED = !!(
   process.env.NEXT_PUBLIC_GOOGLE_AUTH_ENABLED === "true"
 );
 
-export default function LoginForm({ appOrigin = "" }: { appOrigin?: string }) {
+export default function LoginForm({
+  appOrigin = "",
+  googleEnabled,
+}: {
+  appOrigin?: string;
+  googleEnabled?: boolean;
+}) {
+  // SERVER-DERIVED BY DEFAULT. `googleEnabled` arrives as a prop from the login
+  // page, which reads the OAuth credentials server-side. The `NEXT_PUBLIC_*`
+  // constant below stays only as a fallback for a caller that passes nothing:
+  // on its own it is a build-time value, and a deployment that sets the
+  // credentials at runtime would render a dark button from a correctly
+  // configured container. When the prop is present it wins.
+  const showGoogle = googleEnabled ?? GOOGLE_ENABLED;
   const router = useRouter();
   const searchParams = useSearchParams();
   // NEXALOG-HOSTSPLIT — `next` arrives from the middleware as an app-RELATIVE
@@ -91,7 +104,7 @@ export default function LoginForm({ appOrigin = "" }: { appOrigin?: string }) {
         </div>
 
         <div className="rounded-md border border-border bg-card p-6">
-          {GOOGLE_ENABLED && (
+          {showGoogle && (
             <>
               <button
                 type="button"

@@ -2,7 +2,7 @@
 
 - **Area:** `platform`  ·  **Started:** 2026-10-21  ·  **Status:** In progress — code + tests green, PR open, **not merged, not deployed**
 - **Owner:** builder (Hermes), for Dustin
-- **Next step:** Dustin merges, then the two operator-gated steps in §Milestones M4 — (1) add `https://app.nexalog.com/api/auth/callback/google` to a Google OAuth client in the Google console, (2) set the three env vars in the live compose file and restart `nexalog-v2-web-1`. The code side needs nothing further.
+- **Next step:** Dustin merges, then the operator-gated step in §Milestones M4 — (1) add `https://nexalog.com/api/auth/callback/google` to a Google OAuth client in the Google console and save the client id + secret, (2) set `NEXALOG_GOOGLE_CLIENT_ID`, `NEXALOG_GOOGLE_CLIENT_SECRET` and `BETTER_AUTH_URL=https://nexalog.com` in the live compose file and rebuild + restart `nexalog-v2-web-1`. The button needs no build flag: it is derived from the credentials server-side (see §Build notes).
 - **Roadmap initiative:** none — a security fix with a single named requester (Dustin), not a strategic arc.
 
 ## Goal
@@ -21,9 +21,11 @@ the four sibling apps on the same `auth` schema.
 
 The Google provider in `apps/web/lib/auth.ts` is already written and already conditional on
 `NEXALOG_GOOGLE_CLIENT_ID` / `NEXALOG_GOOGLE_CLIENT_SECRET`; the button in
-`apps/web/app/(auth)/login/login-form.tsx` already renders when `NEXT_PUBLIC_GOOGLE_AUTH_ENABLED` is
-`"true"`. Neither Google variable is in the live container's environment, which is the whole reason the
-button is dark.
+`apps/web/app/(auth)/login/login-form.tsx` renders when the server tells it the credentials exist
+(`googleLoginEnabled()` in `lib/auth/google-enabled.ts`, passed down from the login page). Neither
+Google variable is in the live container's environment, which is the whole reason the button is dark.
+The button used to be gated on `NEXT_PUBLIC_GOOGLE_AUTH_ENABLED`, which is inlined at build time and
+would have stayed dark on a correctly configured container — see §Build notes.
 
 The trap that makes this more than a config change: **`disableSignUp` governs `emailAndPassword` only.**
 With a social provider configured, Better Auth's OAuth callback calls `internalAdapter.createOAuthUser`
@@ -112,6 +114,19 @@ data rather than claiming it.
   anyone who can edit a container's environment, and this list is expected to change about never.
 - Verification used the memory adapter, so the test writes nothing and needs no database, while still
   driving the real `internalAdapter` methods the OAuth callback drives.
+- **The button's gate is server-derived, not a build flag.** `NEXT_PUBLIC_*` is inlined by `next build`,
+  so a client-side flag can hide the button on a deployment that is correctly configured — and
+  `apps/web/Dockerfile` declares no `ARG`/`ENV` for any `NEXT_PUBLIC_*`, so even `build.args` would not
+  reach the build. `lib/auth/google-enabled.ts` decides from the credentials on the server and
+  `app/(auth)/login/page.tsx` passes the boolean down, exactly as it already passes `appOrigin`. A test
+  pins the predicate; nothing about the button needs a rebuild to turn on beyond the deploy itself.
+- **Callback host.** `app.nexalog.com` 307-redirects every page to the apex, and readers sign in on
+  `https://nexalog.com/login`, so the redirect URI registered in the Google console must be
+  `https://nexalog.com/api/auth/callback/google`, and `BETTER_AUTH_URL` must name the same origin —
+  otherwise Better Auth derives a `redirect_uri` on the redirecting host and the callback crosses a hop
+  it does not need (Google's code redirect is a GET, so the hop is survivable, not desirable). Both
+  origins are already in `TRUSTED_ORIGIN`, and the passkey RP ID is the registrable domain
+  (`nexalog.com`), so neither is disturbed by the change.
 - **Deletion candidates.** (1) The three direct-session route patches — deleting them would leave a
   pre-existing session able to call passkey/keypair registration; kept because "cannot obtain a
   session" has to hold even for a cookie minted before the gate. (2) A second "Continue with Google"

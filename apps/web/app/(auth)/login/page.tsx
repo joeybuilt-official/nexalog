@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import LoginForm from "./login-form";
 import { getAuthUser } from "@/lib/auth/server";
+import { googleLoginEnabled } from "@/lib/auth/google-enabled";
 import { hostConfig } from "@/lib/hosts/config";
 import { appDestination, DEFAULT_APP_PATH } from "@/lib/hosts/split";
 
@@ -27,8 +28,12 @@ export default async function LoginPage() {
       {/* The app origin is passed DOWN from the server rather than read in the
           browser: the form is a client component, and `process.env` there is
           frozen at BUILD time. This is what makes the post-login destination the
-          app host even though the form itself is served by the front host. */}
-      <LoginForm appOrigin={origins.app} />
+          app host even though the form itself is served by the front host.
+
+          `googleEnabled` travels the same road for the same reason: the OAuth
+          credentials are read HERE, so the button reflects what the deployment
+          actually carries instead of what the image was built with. */}
+      <LoginForm appOrigin={origins.app} googleEnabled={googleLoginEnabled()} />
     </Suspense>
   );
 }
