@@ -6,10 +6,11 @@ import { isAllowedEmail } from "./allowlist";
 /**
  * The refusal is one sentence shown to whoever hits the door. It says what
  * happened and why, in the second person, without confirming whether an
- * account exists — an uninvited visitor learns nothing about the owner's data.
+ * account exists — an uninvited visitor learns nothing about the owner's data,
+ * and the wording carries no count of who IS invited.
  */
 export const NOT_INVITED_MESSAGE =
-  "Nexalog is a single-account app. This account is not allowed to sign in.";
+  "Nexalog is invite-only. This account is not on the invite list.";
 
 /** Resolves a user id to its email, or `null` when no such user exists. */
 export type EmailLookup = (userId: string) => Promise<string | null>;

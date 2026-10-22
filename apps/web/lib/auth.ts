@@ -37,12 +37,13 @@ async function lookupUserEmail(userId: string): Promise<string | null> {
 
 export const auth = betterAuth({
   database: pool,
-  // SINGLE-ACCOUNT DOOR. `disableSignUp` below covers email/password only — a
-  // social provider still creates a user row for any Google account that
-  // completes the flow. These hooks are the binding rule: `user.create` refuses
-  // a stranger, `session.create` refuses a session for a row that is already
-  // there. Both throw 403 rather than returning false (see the module comment
-  // in allowlist-hooks.ts for why the social callback needs the throw).
+  // INVITE DOOR. `disableSignUp` below covers email/password only — a social
+  // provider still creates a user row for any Google account that completes the
+  // flow. These hooks are the binding rule: `user.create` refuses an address
+  // that is not on the list, `session.create` refuses a session for a row that
+  // is already there. Both throw 403 rather than returning false (see the module
+  // comment in allowlist-hooks.ts for why the social callback needs the throw).
+  // The list itself is `lib/auth/allowlist.ts` — two people, owner + son.
   databaseHooks: allowlistDatabaseHooks(lookupUserEmail),
   // Additive: the bearer plugin lets the server ALSO accept
   // `Authorization: Bearer <session-token>` in addition to the web cookie.
@@ -53,6 +54,21 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     disableSignUp: true,
+  },
+  // ONE PERSON, ONE ROW. Abe's address already owns a user row in the shared
+  // `auth` schema, created before Google was ever enabled; without this, a
+  // Google sign-in for that address links onto the existing row only when the
+  // provider asserts `email_verified` — `dist/oauth2/link-account.mjs` refuses
+  // with `account not linked` when `!trusted && !emailVerified`. Google does
+  // assert it for Gmail, so the default happens to work today, but a claim is
+  // not a policy: declaring google trusted makes the link depend on the door in
+  // `lib/auth/allowlist.ts` instead. It cannot create a second row — the user is
+  // looked up by email before anything is created, and any NEW row is still
+  // refused by the `user.create` hook above. Read off the installed 1.6.9 and
+  // pinned by `lib/__tests__/auth-account-linking.test.ts`, which drives the
+  // vendor's own `handleOAuthUserInfo`.
+  account: {
+    accountLinking: { enabled: true, trustedProviders: ["google"] },
   },
   ...(googleClientId && googleClientSecret
     ? {

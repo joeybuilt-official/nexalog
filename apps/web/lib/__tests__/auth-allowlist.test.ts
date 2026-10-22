@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 /**
- * The single-account door, tested against the INSTALLED Better Auth (1.6.9) and
+ * The invite door, tested against the INSTALLED Better Auth (1.6.9) and
  * its real adapter pipeline — not against the pure predicate alone.
  *
  * Why an integration test and not just a unit test of `isAllowedEmail`: the
@@ -29,7 +29,8 @@ import {
 } from "@/lib/auth/allowlist-hooks";
 
 const OWNER = "dustin.olenslager@gmail.com";
-const STRANGER = "abeole21@gmail.com";
+const ABE = "abeole21@gmail.com";
+const STRANGER = "someone.else@gmail.com";
 
 /**
  * A Better Auth instance wired exactly like `lib/auth.ts`: same hooks, same
@@ -68,18 +69,21 @@ async function expectRefused(promise: Promise<unknown>): Promise<void> {
 }
 
 describe("allowlist predicate", () => {
-  it("is exactly one address", () => {
-    expect(ALLOWED_EMAILS).toEqual([OWNER]);
+  it("is exactly the two invited addresses", () => {
+    expect(ALLOWED_EMAILS).toEqual([OWNER, ABE]);
   });
 
-  it("admits the owner in any casing or padding the browser may send", () => {
+  it("admits both invited addresses in any casing or padding the browser may send", () => {
     expect(isAllowedEmail(OWNER)).toBe(true);
     expect(isAllowedEmail("Dustin.Olenslager@Gmail.com")).toBe(true);
     expect(isAllowedEmail("  dustin.olenslager@gmail.com ")).toBe(true);
+    expect(isAllowedEmail(ABE)).toBe(true);
+    expect(isAllowedEmail("AbeOle21@Gmail.com")).toBe(true);
   });
 
   it("refuses everyone else, including the empty cases", () => {
     expect(isAllowedEmail(STRANGER)).toBe(false);
+    expect(isAllowedEmail("abeole21@gmail.com.evil.example")).toBe(false);
     expect(isAllowedEmail("dustin.olenslager@gmail.com.evil.example")).toBe(false);
     expect(isAllowedEmail("")).toBe(false);
     expect(isAllowedEmail(null)).toBe(false);
@@ -106,6 +110,21 @@ describe("user.create hook — a stranger is refused a row", () => {
     expect(created?.id).toBeTruthy();
     const found = await context.internalAdapter.findUserByEmail(OWNER, { includeAccounts: false });
     expect(found?.user.email).toBe(OWNER);
+  });
+
+  it("(a2) creates the second invited address's row", async () => {
+    const auth = await makeAuth(new Map());
+    const context = await auth.$context;
+
+    const created = await context.internalAdapter.createUser({
+      email: ABE,
+      name: "Abe",
+      emailVerified: false,
+    });
+
+    expect(created?.id).toBeTruthy();
+    const found = await context.internalAdapter.findUserByEmail(ABE, { includeAccounts: false });
+    expect(found?.user.email).toBe(ABE);
   });
 
   it("(b) refuses a different Google account at create, and writes nothing", async () => {
